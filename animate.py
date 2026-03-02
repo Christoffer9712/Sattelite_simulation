@@ -59,7 +59,6 @@ time_rate = DEFAULT_TIME_RATE
 
 
 update_q: queue.Queue = queue.Queue()
-init_q: queue.Queue = queue.Queue()
 app = FastAPI()
 
 def run_api():
@@ -96,7 +95,7 @@ class World(DirectObject):
         self.accept("arrow_down", self.moveDown)
         self.accept("arrow_right", self.moveRight)
         self.accept("arrow_left", self.moveLeft)
-        self.accept("+", self.zoomIn)
+        self.accept("=", self.zoomIn)
         self.accept("-", self.zoomOut)
         self.heading = 0
         self.pitch = 0
@@ -137,6 +136,7 @@ class World(DirectObject):
         # Scale orbit above the earth
         self.pos_scale = self.earth_size_scale / 6373
         self.satellites: dict[str, Actor] = {}
+        self.ground_stations: dict[str, Actor] = {}
         self.sat_intervals: dict[str, Interval] = {}
         print(self.satellites)
 
@@ -228,29 +228,52 @@ class World(DirectObject):
         self.earth.setTexture(earth_tex, 1)
         self.earth.reparentTo(self.base)
         self.earth.setScale(self.earth_size_scale)
+        self.earth.setHpr(240, 0, 0)
 
     def processPositionUpdate(self, update: PositionUpdate):
         time_now = datetime.datetime.now(tz=timezone.utc)
         self.time.setText(time_now.isoformat(sep=" ", timespec="seconds"))
-        if update.name == "earth":
-            #print("rotate earth: %d degrees" % update.rotation)
-            if update.now:
-                # This is an initial value for time now
-                self.earth.setHpr(update.rotation, 0, 0)
+        #if update.name == "earth":
+        #    #print("rotate earth: %d degrees" % update.rotation)
+        #    if update.now:
+        #        # This is an initial value for time now
+        #        self.earth.setHpr(update.rotation, 0, 0)
 
-        if update.name not in self.satellites:
-            sat = base.loader.loadModel("models/planet_sphere")
-            sat.reparentTo(self.base)
-            sat.setScale(self.get_sat_size_scale())
-            sat.setTag("nametag", update.name)
-            sat.setColor(1, 1, 0, 1.0)
-            self.satellites[update.name] = sat 
+        if update.name[0] == "R":
+            if update.name not in self.satellites:
+                sat = base.loader.loadModel("models/planet_sphere")
+                sat.reparentTo(self.base)
+                sat.setScale(self.get_sat_size_scale())
+                sat.setTag("nametag", update.name)
+                sat.setColor(1, 1, 0, 1.0)
+                self.satellites[update.name] = sat 
 
-        satellite = self.satellites[update.name]
-        x = update.position[0] * self.pos_scale
-        y = update.position[1] * self.pos_scale
-        z = update.position[2] * self.pos_scale
-        satellite.setPos(x, y, z)
+            satellite = self.satellites[update.name]
+            x = update.position[0] * self.pos_scale
+            y = update.position[1] * self.pos_scale
+            z = update.position[2] * self.pos_scale
+            print(f"satelite pos: x={x}, y={y}, z={z}")
+            satellite.setPos(x, y, z)
+        
+        elif update.name[0] == "G":
+            print("Update Ground station")
+            if update.name not in self.ground_stations:
+                gs = base.loader.loadModel("models/planet_sphere")
+                gs.reparentTo(self.base)
+                gs.setScale(self.get_sat_size_scale()*4)
+                gs.setTag("nametag", update.name)
+                gs.setColor(1, 0, 1, 1.0)
+                self.ground_stations[update.name] = gs 
+
+            gs = self.ground_stations[update.name]
+            x = update.position[0] * self.pos_scale
+            y = update.position[1] * self.pos_scale
+            z = update.position[2] * self.pos_scale
+            gs.setPos(x, y, z)
+        
+        
+        else:
+            print(update.name)
         
     def gLoop(self, task):
         while not update_q.empty():

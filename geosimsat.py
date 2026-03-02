@@ -84,6 +84,19 @@ class SatSimulation:
             ground_station = GroundStation(name, position)
             self.ground_stations.append(ground_station)
 
+            dtime = datetime.datetime.now(tz=datetime.timezone.utc)
+            sfield_time = self.ts.from_datetime(dtime)
+            print(f"groundPos = {position}")
+            print(f"groundPosKm = {position.at(sfield_time).position.km}")
+            update = simapi_vis.PositionUpdate(
+                name=ground_station.name,
+                position=tuple(position.at(sfield_time).position.km),
+                rotation=0,
+                now=False,
+                time=dtime
+            )    
+            self.client_vis.update_node(update)
+
         for name in torus_topo.satellites(graph):
             orbit = graph.nodes[name]["orbit"]
             ts = load.timescale()
@@ -112,7 +125,6 @@ class SatSimulation:
             satellite.height = wgs84.height_of(satellite.geo)
             #print(f"{satellite.name} Lat: {satellite.lat}, Lon: {satellite.lon}, Hieght: {satellite.height.km}km")
             # Create future position
-            print("CHRIS updatePosition")
             update = simapi_vis.PositionUpdate(
                 name=satellite.name,
                 position=tuple(satellite.geo.position.km),
