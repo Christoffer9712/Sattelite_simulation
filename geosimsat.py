@@ -17,7 +17,9 @@ import datetime
 import time
 
 import torus_topo
+import simclient_vis
 import simclient
+import simapi_vis
 
 import networkx
 from skyfield.api import load, wgs84 # type: ignore
@@ -70,6 +72,7 @@ class SatSimulation:
         self.satellites: list[Satellite] = []
         self.ground_stations: list[GroundStation] = []
         self.client: simclient.Client = simclient.Client("http://127.0.0.0:8000")
+        self.client_vis: simclient_vis.Client = simclient_vis.Client("http://127.0.0.0:8888")
         self.calc_only = False
         self.min_altitude = SatSimulation.MIN_ALTITUDE
         self.zero_uplink_count = 0
@@ -88,6 +91,16 @@ class SatSimulation:
             earth_satellite = EarthSatellite(l1, l2, name, ts)
             satellite = Satellite(name, earth_satellite)
             self.satellites.append(satellite)
+            dtime = datetime.datetime.now(tz=datetime.timezone.utc)
+            sfield_time = self.ts.from_datetime(dtime)
+            update = simapi_vis.PositionUpdate(
+                name=satellite.name,
+                position=tuple(satellite.earth_sat.at(sfield_time).position.km),
+                rotation=0,
+                now=False,
+                time=dtime
+            )    
+            self.client_vis.update_node(update)
 
     def updatePositions(self, future_time: datetime.datetime):
         sfield_time = self.ts.from_datetime(future_time)
@@ -98,7 +111,17 @@ class SatSimulation:
             satellite.lon = lon
             satellite.height = wgs84.height_of(satellite.geo)
             #print(f"{satellite.name} Lat: {satellite.lat}, Lon: {satellite.lon}, Hieght: {satellite.height.km}km")
-
+            # Create future position
+            print("CHRIS updatePosition")
+            update = simapi_vis.PositionUpdate(
+                name=satellite.name,
+                position=tuple(satellite.geo.position.km),
+                rotation=0,
+                now=False,
+                time=future_time
+            )
+            
+            self.client_vis.update_node(update)
     @staticmethod
     def nearby(ground_station: GroundStation, satellite: Satellite) -> bool:
         return (satellite.lon.degrees > ground_station.position.longitude.degrees - 20 and

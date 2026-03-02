@@ -10,6 +10,7 @@ Load a TLE file and draw the Satellites, updating locations every 5 seconds.
 
 from dataclasses import dataclass
 import datetime
+from datetime import timezone
 import math
 import os
 import queue
@@ -55,7 +56,7 @@ time_rate = DEFAULT_TIME_RATE
 
 # Global variables accessed by both threads, not protected by a mutex
 # As currently structured, this should not cause a problem (right??)
-last_time_sample: datetime.datetime = datetime.datetime.now(tz=datetime.UTC)
+last_time_sample: datetime.datetime = datetime.datetime.now(tz=timezone.utc)
 current_vtime: datetime.datetime = last_time_sample
 
 # True means that the user has paused the motion, we freeze time
@@ -72,7 +73,7 @@ def vtime_now() -> datetime.datetime:
     global vtime_paused
     if not vtime_paused:
         # Calculate delta from last time sample and add to current time
-        time_now = datetime.datetime.now(tz=datetime.UTC)
+        time_now = datetime.datetime.now(tz=timezone.utc)
         delta = time_now - last_time_sample
         delta = delta * time_rate
         last_time_sample = time_now
@@ -88,7 +89,7 @@ def pause_vtime():
 def resume_vtime():
     global last_time_sample
     global vtime_paused
-    last_time_sample = datetime.datetime.now(tz=datetime.UTC)
+    last_time_sample = datetime.datetime.now(tz=timezone.utc)
     vtime_paused = False
 
 

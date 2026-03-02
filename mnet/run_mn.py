@@ -8,6 +8,7 @@ import signal
 import sys
 
 from mininet.net import Mininet
+from mininet.node import RemoteController
 from mininet.log import setLogLevel, info
 from mininet.cli import CLI
 import mnet.driver
@@ -37,7 +38,7 @@ def run(num_rings, num_routers, use_cli, use_mnet, stable_monitors: bool, ground
     net = None
     if use_mnet:
         # Run mininet
-        net = Mininet(topo=topo)
+        net = Mininet(topo=topo, controller=None)
         net.start()
 
     frrt = mnet.frr_topo.FrrSimRuntime(topo, net, stable_monitors)
