@@ -36,6 +36,10 @@ class PositionUpdate(BaseModel):
     name: str
     position: tuple
 
+class Orbit(BaseModel):
+    """Draw orbit for satellites"""
+    nodes: list[str]
+
 #class PositionInit(BaseModel):
 #    satellites: list[PositionUpdate]
 #    ground_stations: list[PositionUpdate]

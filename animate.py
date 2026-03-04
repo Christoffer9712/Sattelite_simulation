@@ -24,6 +24,8 @@ from direct.actor.Actor import Actor
 from panda3d.core import TextNode
 from panda3d.core import Point3
 from panda3d.core import LVecBase3
+from panda3d.core import LineSegs
+from panda3d.core import NodePath
 from panda3d.core import CollisionNode
 from panda3d.core import CollisionRay
 from panda3d.core import CollisionTraverser
@@ -68,9 +70,18 @@ def run_api():
     server = uvicorn.Server(config=config)
     server.run()
 
+@app.put("/draw_orbit")
+def set_link(request: simapi_vis.Orbit):
+    """
+    Set link up or down
+    """
+    print(f"draw_orbit receive req = {request}")
+    update_q.put(request)
+    return {"status": "OK"}
+
 @app.get("/", response_class=HTMLResponse)
 def root(request: Request):
-    print(request)
+    #print(request)
     return {"status": "OK"}
 
 @app.put("/update_node")
@@ -79,10 +90,29 @@ def set_link(request: simapi_vis.PositionUpdate):
     Set link up or down
     """
     update_q.put(request)
-    print(f"I receive req = {request}")
+    #print(f"I receive req = {request}")
     return {"status": "OK"}
 
 class World(DirectObject):
+    
+    def draw_orbit(self, orbit:simapi_vis.Orbit):
+        node_list = orbit.nodes
+        for i in range(len(node_list)):
+            pos1 = self.satellites[node_list[i]].getPos()
+            if i == len(node_list) - 1:
+                pos2 = self.satellites[node_list[0]].getPos()
+            else:
+                pos2 = self.satellites[node_list[i+1]].getPos()
+            print(f"Chris Pos1 = {pos1}")
+            print(f"Chris Pos1 = {pos2}")
+            lines = LineSegs()
+            lines.moveTo(pos1)
+            lines.drawTo(pos2)
+            lines.setThickness(2)
+            node = lines.create()
+            np = NodePath(node)
+            np.reparentTo(self.base)
+    
 
     def setup_elements(self):
         self.loadEarth()
@@ -134,7 +164,7 @@ class World(DirectObject):
         self.satellites: dict[str, Actor] = {}
         self.ground_stations: dict[str, Actor] = {}
         self.sat_intervals: dict[str, Interval] = {}
-        print(self.satellites)
+       # print(self.satellites)
 
         self.selected_sat = None
         self.setCameraPos()
@@ -248,7 +278,6 @@ class World(DirectObject):
             x = update.position[0] * self.pos_scale
             y = update.position[1] * self.pos_scale
             z = update.position[2] * self.pos_scale
-            print(f"satelite pos: x={x}, y={y}, z={z}")
             satellite.setPos(x, y, z)
         
         elif update.name[0] == "G":
@@ -273,7 +302,12 @@ class World(DirectObject):
         
     def gLoop(self, task):
         while not update_q.empty():
-            self.processPositionUpdate(update_q.get())
+            msg = update_q.get()
+            print(type(msg))
+            if type(msg) == simapi_vis.PositionUpdate:
+                self.processPositionUpdate(msg)
+            elif type(msg) == simapi_vis.Orbit:
+                self.draw_orbit(msg)
         return Task.cont
 
 
@@ -291,4 +325,3 @@ if __name__ == "__main__":
     # Panda3D facility for manipulating image
     #threading.Thread(target=run_api(), daemon=True).start()
     w = World()
-

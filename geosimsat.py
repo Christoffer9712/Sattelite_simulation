@@ -66,7 +66,7 @@ class SatSimulation:
     TIME_SLICE = 10
     MIN_ALTITUDE = 35
 
-    def __init__(self, graph: networkx.Graph):
+    def __init__(self, graph: networkx.Graph, num_rings, num_routers):
         self.graph = graph
         self.ts = load.timescale()
         self.satellites: list[Satellite] = []
@@ -110,6 +110,16 @@ class SatSimulation:
                 position=tuple(satellite.earth_sat.at(sfield_time).position.km),
             )    
             self.client_vis.update_node(update)
+        
+        for ring in range(num_rings):
+            nodes = []
+            for node in range(num_routers):
+                nodes.append(f'R{ring}_{node}')            
+            
+            orbit = simapi_vis.Orbit(
+                nodes = nodes
+            )
+            self.client_vis.draw_orbits(orbit)
 
     def updatePositions(self, future_time: datetime.datetime):
         sfield_time = self.ts.from_datetime(future_time)
@@ -226,10 +236,14 @@ def run(num_rings: int, num_routers: int, ground_stations: bool, min_alt: int, c
     min_alt: Minimum angle (degrees) above horizon needed to connect to the satellite
     calc_only: If True, only loop quicky dumping results to the screen
     """
+    
     graph = torus_topo.create_network(num_rings, num_routers, ground_stations)
-    sim: SatSimulation = SatSimulation(graph)
+    sim: SatSimulation = SatSimulation(graph, num_rings, num_routers)
     sim.min_altitude = min_alt
     sim.calc_only = calc_only
+    sim.num_rings = num_rings
+    sim.num_routers = num_routers
+
     sim.run()
 
 
