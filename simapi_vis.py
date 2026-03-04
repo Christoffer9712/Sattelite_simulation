@@ -10,32 +10,31 @@ from pydantic import BaseModel
 from dataclasses import dataclass, field
 
 
+class UpLink(BaseModel):
+    sat_node: str
+    distance: int
+
+class UpLinks(BaseModel):
+    ground_node: str
+    uplinks: list[UpLink]
 
 @dataclass
 class Satellite:
     """Represents an instance of a satellite"""
     name: str
     position: tuple
-    rotation: int
-    now: bool
-    time: datetime.datetime
 
 @dataclass
 class GroundStation:
     """Represents an instance of a ground station"""
     name: str
     position: tuple
-    rotation: int
-    now: bool
-    time: datetime.datetime
+    uplinks: UpLinks
 
 class PositionUpdate(BaseModel):
     """Reports new positions for objects."""
     name: str
     position: tuple
-    rotation: int
-    now: bool
-    time: datetime.datetime
 
 #class PositionInit(BaseModel):
 #    satellites: list[PositionUpdate]

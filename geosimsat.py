@@ -85,15 +85,14 @@ class SatSimulation:
             self.ground_stations.append(ground_station)
 
             dtime = datetime.datetime.now(tz=datetime.timezone.utc)
+            dtime = dtime.replace(hour=0, minute=0, second=0, microsecond=0)
             sfield_time = self.ts.from_datetime(dtime)
             print(f"groundPos = {position}")
             print(f"groundPosKm = {position.at(sfield_time).position.km}")
             update = simapi_vis.PositionUpdate(
                 name=ground_station.name,
                 position=tuple(position.at(sfield_time).position.km),
-                rotation=0,
-                now=False,
-                time=dtime
+                uplinks=[]
             )    
             self.client_vis.update_node(update)
 
@@ -109,9 +108,6 @@ class SatSimulation:
             update = simapi_vis.PositionUpdate(
                 name=satellite.name,
                 position=tuple(satellite.earth_sat.at(sfield_time).position.km),
-                rotation=0,
-                now=False,
-                time=dtime
             )    
             self.client_vis.update_node(update)
 
@@ -127,10 +123,7 @@ class SatSimulation:
             # Create future position
             update = simapi_vis.PositionUpdate(
                 name=satellite.name,
-                position=tuple(satellite.geo.position.km),
-                rotation=0,
-                now=False,
-                time=future_time
+                position=tuple(satellite.geo.position.km)
             )
             
             self.client_vis.update_node(update)

@@ -218,7 +218,7 @@ class FrrRouter(MNetNodeWrap):
     """
 
     CFG_DIR = "/etc/frr/{node}"
-    VTY_DIR = "/var/frr/{node}/{daemon}.vty"
+    VTY_DIR = "/var/run/frr/{node}/{daemon}.vty"
     LOG_DIR = "/var/log/frr/{node}"
 
     def __init__(self, name: str, default_ip: str):
@@ -290,12 +290,13 @@ class FrrRouter(MNetNodeWrap):
 
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         path = FrrRouter.VTY_DIR.format(node=self.name, daemon=daemon)
+        print(f"Christoffer: path = {path}")
         result = True
         try:
             sock.connect(path)
             msg = b'enable\x00'
             result = result and self._send_frr_cmd(sock, msg)
-            msg = b'conf term file-lock\x00'
+            msg = b'configure terminal\x00'
             result = result and self._send_frr_cmd(sock, msg)
             for command in commands:
                 print(f"sending command {command} to {self.name}")
@@ -314,6 +315,7 @@ class FrrRouter(MNetNodeWrap):
     def _send_frr_cmd(self, sock, msg: bytes) -> bool:
         sock.sendall(msg)
         data = sock.recv(10000)
+        print(f"Christoffer data = {data}")
         size = len(data)
         if size > 0 and data[size-1] == 0:
             return True
@@ -699,6 +701,9 @@ class FrrSimRuntime:
         # Configure FRR daemons to handle the uplink
         station = self.ground_stations[station_name]
         frr_router = self.routers[sat_name]
+        
+        print(f"Christoffer: frr router = {frr_router.name}")
+        print(f"Christoffer command: ip route {station.defaultIP()}/32 {format(ip1.ip)}")
 
         # Set a static route on the satellite node that refers to the ground station loopback IP
         # ip route {ground station ip /32} {ground station pool ip}

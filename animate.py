@@ -48,10 +48,6 @@ class PositionUpdate:
 
     name: str
     position: tuple
-    rotation: int
-    now: bool
-    time: datetime.datetime
-
 
 done = False
 DEFAULT_TIME_RATE = 1  # Default to 10x speed
@@ -228,7 +224,7 @@ class World(DirectObject):
         self.earth.setTexture(earth_tex, 1)
         self.earth.reparentTo(self.base)
         self.earth.setScale(self.earth_size_scale)
-        self.earth.setHpr(240, 0, 0)
+        self.earth.setHpr(-40, 0, 0)
 
     def processPositionUpdate(self, update: PositionUpdate):
         time_now = datetime.datetime.now(tz=timezone.utc)

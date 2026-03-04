@@ -129,10 +129,12 @@ def create_ospf_config(graph: networkx.Graph, name: str) -> str:
 def create_daemons_config() -> str:
     return """#
 ospfd=yes
+staticd=yes
 vtysh_enable=yes
 zebra_options="  -A 127.0.0.1 -s 90000000"
 mgmtd_options="  -A 127.0.0.1"
 ospfd_options="  -A 127.0.0.1"
+staticd_options="  -A 127.0.0.1"
     """
 
 
