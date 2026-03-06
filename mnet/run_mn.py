@@ -25,9 +25,9 @@ def signal_handler(sig, frame):
     print("Ctrl-C recieved, shutting down....")
     mnet.driver.invoke_shutdown()
 
-def run(num_rings, num_routers, use_cli, use_mnet, stable_monitors: bool, ground_stations: bool):
+def run(num_rings, num_routers, use_cli, use_mnet, stable_monitors: bool, ground_stations: bool, core: bool):
     # Create a networkx graph annoted with FRR configs
-    graph = torus_topo.create_network(num_rings, num_routers, ground_stations)
+    graph = torus_topo.create_network(num_rings, num_routers, ground_stations, core)
     frr_config_topo.annotate_graph(graph)
     frr_config_topo.dump_graph(graph)
 
@@ -94,11 +94,12 @@ if __name__ == "__main__":
     num_rings = parser['network'].getint('rings', 4)
     num_routers = parser['network'].getint('routers', 4)
     ground_stations = parser['network'].getboolean('ground_stations', False)
+    core = parser['network'].getboolean('core', False)
     stable_monitors = parser['monitor'].getboolean('stable_monitors', False)
-
+    
     if num_rings < 1 or num_rings > 30 or num_routers < 1 or num_routers > 30:
         print("Rings or nodes count out of range")
         sys.exit(-1)
 
     setLogLevel("info")
-    run(num_rings, num_routers, use_cli, use_mnet, stable_monitors, ground_stations)
+    run(num_rings, num_routers, use_cli, use_mnet, stable_monitors, ground_stations, core)

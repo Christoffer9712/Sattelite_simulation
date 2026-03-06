@@ -63,6 +63,16 @@ def annotate_graph(graph: networkx.Graph):
         node["vtysh"] = create_vtysh_config(name)
         node["daemons"] = create_daemons_config()
 
+    # Generate config information for the cores
+    # Cores and groundstations belong to one OSPF enabled network
+    # The satellites belong to another OSPF enabled network where
+    # static links are added to ground station dynamically
+    for name in torus_topo.cores(graph):
+        node = graph.nodes[name]
+        node["ospf"] = create_ospf_config(graph, name)
+        node["vtysh"] = create_vtysh_config(name)
+        node["daemons"] = create_daemons_config()
+
     # Generate ip link pool information for the ground stations
     for name in torus_topo.ground_stations(graph):
         node = graph.nodes[name]
@@ -77,6 +87,9 @@ def annotate_graph(graph: networkx.Graph):
                       "ip2": ipaddress.IPv4Interface((ips[1].packed, 30))}
             uplinks.append(uplink)
         node["uplinks"] = uplinks
+        node["ospf"] = create_ospf_config(graph, name)
+        node["vtysh"] = create_vtysh_config(name)
+        node["daemons"] = create_daemons_config()
 
 
 OSPF_TEMPLATE = """
@@ -89,7 +102,7 @@ service integrated-vtysh-config
 !
 router ospf
  ospf router-id {ip}
- redistribute static
+ {redistribute}
 {networks}
 exit
 !
@@ -120,9 +133,14 @@ def create_ospf_config(graph: networkx.Graph, name: str) -> str:
     for network in networks:
         networks_str.append(OSPF_NW_TEMPLATE.format(network=format(network)))
 
+    redistribute = ""
+    if node["type"] == "satellite":
+        redistribute = "redistribute static" # Needed for satellites to be aware of ground stations
+         
+
     # Router ID must be a plain IP, no subnet.
     return OSPF_TEMPLATE.format(
-        name=name, ip=format(ip.ip), networks="\n".join(networks_str)
+        name=name, ip=format(ip.ip), redistribute=redistribute, networks="\n".join(networks_str)
     )
 
 

@@ -16,6 +16,7 @@ NUM_RING_NODES = 40
 TYPE = "type"
 TYPE_SAT = "satellite"
 TYPE_GROUND = "ground_station"
+TYPE_CORE = "core"
 LAT = "latitude"
 LON = "longitude"
 
@@ -25,7 +26,7 @@ def getNumRings():
 def getNumRingNodes():
     return NUM_RING_NODES
 
-def create_network(num_rings: int = NUM_RINGS, num_ring_nodes: int = NUM_RING_NODES, ground_stations: bool = True) -> networkx.Graph:
+def create_network(num_rings: int = NUM_RINGS, num_ring_nodes: int = NUM_RING_NODES, ground_stations: bool = True, core: bool = True) -> networkx.Graph:
     """
     Create a torus network of the given size annotated with orbital information.
     """
@@ -48,6 +49,9 @@ def create_network(num_rings: int = NUM_RINGS, num_ring_nodes: int = NUM_RING_NO
 
     if ground_stations:
         add_ground_stations(graph)
+
+    if core:
+        add_core(graph)
 
     # Set all edges to up
     for edge_name, edge in graph.edges.items():
@@ -74,6 +78,17 @@ def satellites(graph: networkx.Graph) -> list[str]:
     result = []
     for name in graph.nodes:
         if graph.nodes[name][TYPE] == TYPE_SAT:
+            result.append(name)
+    return result
+
+def cores(graph: networkx.Graph) -> list[str]:
+    """
+    Return a list of all node names where the node is of type core
+    """
+    # Consider converting to using yield
+    result = []
+    for name in graph.nodes:
+        if graph.nodes[name][TYPE] == TYPE_CORE:
             result.append(name)
     return result
 
@@ -217,6 +232,17 @@ def add_ground_stations(graph: networkx.Graph) -> None:
     graph.add_edge("G_ZRH", "G_HND")
     graph.add_edge("G_HND", "G_PAO")
 
+def add_core(graph: networkx.Graph) -> None:
+    # Create main core with links to some ground stations
+
+    graph.add_node("C_FRA")
+    node = graph.nodes["C_FRA"]
+    node[TYPE] = TYPE_CORE
+    node[LAT] =  50.033333
+    node[LON] = 8.570556
+    graph.add_edge("C_FRA", "G_ZRH")
+
+    
 
 #
 # Functions to exercise basic routing over the torus topology graph 

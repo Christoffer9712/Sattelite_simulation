@@ -152,64 +152,6 @@ class Uplink:
     default: bool = False
 
 
-class GroundStation(MNetNodeWrap):
-    """
-    State for a Ground Station
-
-    Tracks established uplinks to satellites.
-    Not a mininet node.
-    """
-
-    def __init__(self, name: str, default_ip: str, uplinks: list[dict[str,typing.Any]]) -> None:
-        super().__init__(name, default_ip)
-        self.uplinks: list[Uplink] = []
-        self.ip_pool: list[IPPoolEntry] = []
-        for link in uplinks:
-            entry = IPPoolEntry(network=link["nw"], ip1=link["ip1"], ip2=link["ip2"])
-            self.ip_pool.append(entry)
-
-    def stable_node(self) -> bool:
-        """
-        Indicates that the node is not expected to be always reachable.
-        """
-        return False
-
-    def has_uplink(self, sat_name: str) -> bool:
-        for uplink in self.uplinks:
-            if uplink.sat_name == sat_name:
-                return True
-        return False
-
-    def sat_links(self) -> list[str]:
-        """
-        Return a list of satellite names to which we have uplinks
-        """
-        return [uplink.sat_name for uplink in self.uplinks]
-
-    def _get_pool_entry(self) -> IPPoolEntry | None:
-        for entry in self.ip_pool:
-            if not entry.used:
-                entry.used = True
-                return entry
-        return None
-
-    def add_uplink(self, sat_name: str, distance: int) -> Uplink | None:
-        pool_entry = self._get_pool_entry()
-        if pool_entry is None:
-            return None
-        uplink = Uplink(sat_name, distance, pool_entry)
-        self.uplinks.append(uplink)
-        return uplink
-
-    def remove_uplink(self, sat_name: str) -> Uplink|None:
-        for entry in self.uplinks:
-            if entry.sat_name == sat_name:
-                entry.ip_pool_entry.used = False
-                self.uplinks.remove(entry)
-                return entry
-        return None
-
-
 class FrrRouter(MNetNodeWrap):
     """
     Support an FRR router under mininet.
@@ -332,6 +274,63 @@ class FrrRouter(MNetNodeWrap):
         os.chmod(file_path, 0o640)
         os.chown(file_path, uid, gid)
 
+class GroundStation(FrrRouter):
+    """
+    State for a Ground Station
+
+    Tracks established uplinks to satellites.
+    Not a mininet node.
+    """
+
+    def __init__(self, name: str, default_ip: str, uplinks: list[dict[str,typing.Any]]) -> None:
+        super().__init__(name, default_ip)
+        self.uplinks: list[Uplink] = []
+        self.ip_pool: list[IPPoolEntry] = []
+        for link in uplinks:
+            entry = IPPoolEntry(network=link["nw"], ip1=link["ip1"], ip2=link["ip2"])
+            self.ip_pool.append(entry)
+
+    def stable_node(self) -> bool:
+        """
+        Indicates that the node is not expected to be always reachable.
+        """
+        return False
+
+    def has_uplink(self, sat_name: str) -> bool:
+        for uplink in self.uplinks:
+            if uplink.sat_name == sat_name:
+                return True
+        return False
+
+    def sat_links(self) -> list[str]:
+        """
+        Return a list of satellite names to which we have uplinks
+        """
+        return [uplink.sat_name for uplink in self.uplinks]
+
+    def _get_pool_entry(self) -> IPPoolEntry | None:
+        for entry in self.ip_pool:
+            if not entry.used:
+                entry.used = True
+                return entry
+        return None
+
+    def add_uplink(self, sat_name: str, distance: int) -> Uplink | None:
+        pool_entry = self._get_pool_entry()
+        if pool_entry is None:
+            return None
+        uplink = Uplink(sat_name, distance, pool_entry)
+        self.uplinks.append(uplink)
+        return uplink
+
+    def remove_uplink(self, sat_name: str) -> Uplink|None:
+        for entry in self.uplinks:
+            if entry.sat_name == sat_name:
+                entry.ip_pool_entry.used = False
+                self.uplinks.remove(entry)
+                return entry
+        return None
+
 
 class StubMininet:
     """
@@ -364,7 +363,7 @@ class NetxTopo(mininet.topo.Topo):
     """
     def __init__(self, graph: networkx.Graph):
         self.graph = graph
-        self.routers: list[FrrRouter] = []
+        self.satellites: list[FrrRouter] = []
         self.ground_stations: list[GroundStation] = []
         super().__init__()
 
@@ -387,7 +386,7 @@ class NetxTopo(mininet.topo.Topo):
                 ip=ip_intf)
 
             frr_router: FrrRouter = FrrRouter(name, ip_addr) 
-            self.routers.append(frr_router)
+            self.satellites.append(frr_router)
             frr_router.configure(
                 ospf=node["ospf"],
                 vtysh=node["vtysh"],
@@ -405,6 +404,34 @@ class NetxTopo(mininet.topo.Topo):
             self.addHost(name, cls=RouteNode, ip=ip_intf)
             station = GroundStation(name, ip_addr, node["uplinks"])
             self.ground_stations.append(station)
+            station.configure(
+                ospf=node["ospf"],
+                vtysh=node["vtysh"],
+                daemons=node["daemons"]
+            )
+            
+
+        # Create core
+        for name in torus_topo.cores(self.graph):
+            node = self.graph.nodes[name]
+            ip = node.get("ip")
+            ip_intf = None
+            ip_addr = None
+            if ip is not None:
+                ip_intf = format(ip)
+                ip_addr = format(ip.ip)
+            self.addHost(
+                name,
+                cls=RouteNode,
+                ip=ip_intf)
+
+            frr_router: FrrRouter = FrrRouter(name, ip_addr) 
+            self.satellites.append(frr_router)
+            frr_router.configure(
+                ospf=node["ospf"],
+                vtysh=node["vtysh"],
+                daemons=node["daemons"]
+            )
 
         # Create links between routers
         for name, edge in self.graph.edges.items():
@@ -422,6 +449,7 @@ class NetxTopo(mininet.topo.Topo):
             ip2 = edge["ip"][router2]
             intf2 = edge["intf"][router2]
 
+            print(f"Chris: addLink, router1={router1}, router2={router2}, intf1={intf1}, intf2={intf2}")
             self.addLink(
                 router1,
                 router2,
@@ -441,7 +469,7 @@ class FrrSimRuntime:
         self.graph = topo.graph
 
         self.nodes: dict[str, MNetNodeWrap] = {}
-        self.routers: dict[str, FrrRouter] = {}
+        self.satellites: dict[str, FrrRouter] = {}
         self.ground_stations: dict[str, GroundStation] = {}
         self.stable_monitor = stable_monitor
 
@@ -450,9 +478,9 @@ class FrrSimRuntime:
         open(fd, "r").close()
         print(f"Master db file {self.db_file}")
 
-        for frr_router in topo.routers:
-            self.nodes[frr_router.name] = frr_router
-            self.routers[frr_router.name] = frr_router
+        for satellite in topo.satellites:
+            self.nodes[satellite.name] = satellite
+            self.satellites[satellite.name] = satellite
         for ground_station in topo.ground_stations:
             self.nodes[ground_station.name] = ground_station
             self.ground_stations[ground_station.name] = ground_station
@@ -469,7 +497,7 @@ class FrrSimRuntime:
         # Populate master db file
         data = []
         # Stable targets - to monitor
-        for router in self.routers.values():
+        for router in self.satellites.values():
             data.append((router.name, router.defaultIP(), router.stable_node()))
         # Not stable targets - don't monitor
         for station in self.ground_stations.values():
@@ -700,7 +728,7 @@ class FrrSimRuntime:
 
         # Configure FRR daemons to handle the uplink
         station = self.ground_stations[station_name]
-        frr_router = self.routers[sat_name]
+        frr_router = self.satellites[sat_name]
         
         #print(f"Christoffer: frr router = {frr_router.name}")
         #print(f"Christoffer command: ip route {station.defaultIP()}/32 {format(ip1.ip)}")
@@ -715,7 +743,7 @@ class FrrSimRuntime:
         sat_node = self.net.getNodeByName(sat_name)
         # Remove static route
         station = self.ground_stations[station_name]
-        frr_router = self.routers[sat_name]
+        frr_router = self.satellites[sat_name]
         frr_router.config_frr("staticd", [ f"no ip route {station.defaultIP()}/32 {format(ip.ip)}" ])
         self.net.delLinkBetween(station_node, sat_node)
 
