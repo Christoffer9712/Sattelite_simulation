@@ -25,7 +25,7 @@ def getNumRings():
 def getNumRingNodes():
     return NUM_RING_NODES
 
-def create_network(num_rings: int =NUM_RINGS, num_ring_nodes: int =NUM_RING_NODES, ground_stations: bool = True) -> networkx.Graph:
+def create_network(num_rings: int = NUM_RINGS, num_ring_nodes: int = NUM_RING_NODES, ground_stations: bool = True) -> networkx.Graph:
     """
     Create a torus network of the given size annotated with orbital information.
     """
@@ -194,6 +194,20 @@ def add_ground_stations(graph: networkx.Graph) -> None:
     node[LAT] = 47.45516
     node[LON] = 8.56350
     graph.add_edge("G_SYD", "G_ZRH")
+
+    #graph.add_node("G_LON")
+    #node = graph.nodes["G_LON"]
+    #node[TYPE] = TYPE_GROUND
+    #node[LAT] = 51.4706
+    #node[LON] = -0.461941
+    #graph.add_edge("G_ZRH", "G_LON")
+
+    #graph.add_node("G_CDG")
+    #node = graph.nodes["G_CDG"]
+    #node[TYPE] = TYPE_GROUND
+    #node[LAT] = 49.0096
+    #node[LON] = 2.5557
+    #graph.add_edge("G_LON", "G_CDG")
 
     graph.add_node("G_HND")
     node = graph.nodes["G_HND"]

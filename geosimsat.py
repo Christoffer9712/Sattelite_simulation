@@ -67,6 +67,7 @@ class SatSimulation:
     MIN_ALTITUDE = 35
 
     def __init__(self, graph: networkx.Graph, num_rings, num_routers):
+        # Christoffer, should extend this to set up appropriate delays between satellites depending on the initial config.
         self.graph = graph
         self.ts = load.timescale()
         self.satellites: list[Satellite] = []
@@ -92,7 +93,6 @@ class SatSimulation:
             update = simapi_vis.PositionUpdate(
                 name=ground_station.name,
                 position=tuple(position.at(sfield_time).position.km),
-                uplinks=[]
             )    
             self.client_vis.update_node(update)
 
@@ -108,7 +108,8 @@ class SatSimulation:
             update = simapi_vis.PositionUpdate(
                 name=satellite.name,
                 position=tuple(satellite.earth_sat.at(sfield_time).position.km),
-            )    
+            )
+            #print(f"Satellite {update.name} has initial position = {update.position}") # approx 470km above earth
             self.client_vis.update_node(update)
         
         for ring in range(num_rings):
@@ -122,6 +123,8 @@ class SatSimulation:
             self.client_vis.draw_orbits(orbit)
 
     def updatePositions(self, future_time: datetime.datetime):
+        # Christoffer, perhaps update delays every 100 update?
+
         sfield_time = self.ts.from_datetime(future_time)
         for satellite in self.satellites:
             satellite.geo = satellite.earth_sat.at(sfield_time)
@@ -129,7 +132,7 @@ class SatSimulation:
             satellite.lat = lat
             satellite.lon = lon
             satellite.height = wgs84.height_of(satellite.geo)
-            #print(f"{satellite.name} Lat: {satellite.lat}, Lon: {satellite.lon}, Hieght: {satellite.height.km}km")
+            #print(f"{satellite.name} Lat: {satellite.lat}, Lon: {satellite.lon}, Height: {satellite.height.km}km")
             # Create future position
             update = simapi_vis.PositionUpdate(
                 name=satellite.name,
@@ -137,14 +140,18 @@ class SatSimulation:
             )
             
             self.client_vis.update_node(update)
+
     @staticmethod
     def nearby(ground_station: GroundStation, satellite: Satellite) -> bool:
+        # Christoffer, perhaps have 20 as an input variable
         return (satellite.lon.degrees > ground_station.position.longitude.degrees - 20 and
                 satellite.lon.degrees < ground_station.position.longitude.degrees + 20 and
                 satellite.lat.degrees > ground_station.position.latitude.degrees - 20 and 
                 satellite.lat.degrees < ground_station.position.latitude.degrees + 20)
  
     def updateUplinkStatus(self, future_time: datetime.datetime):
+        #Christoffer, should probably set the delay every time a new uplink is creted and update existing ones every 10 update or so. 
+        # (More often than ISL since ground stations don't move alongsinde the satellites)
         """
         Update the links between ground stations and satellites
         """

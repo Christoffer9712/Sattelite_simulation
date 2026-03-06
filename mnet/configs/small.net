@@ -2,6 +2,7 @@
 rings=8
 routers=8
 ground_stations=yes
+core=yes
 
 [monitor]
 stable_monitors=yes

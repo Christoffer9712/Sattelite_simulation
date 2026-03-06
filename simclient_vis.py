@@ -16,7 +16,6 @@ class Client:
                 url,
                 json=data.model_dump(mode="json")
             )
-            print(r.text)
         except requests.exceptions.ConnectionError as e:
             print(e)
             pass
@@ -29,7 +28,6 @@ class Client:
                 url,
                 json=data.model_dump(mode="json")
             )
-            print(r.text)
         except requests.exceptions.ConnectionError as e:
             print(e)
             pass

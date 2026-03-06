@@ -702,8 +702,8 @@ class FrrSimRuntime:
         station = self.ground_stations[station_name]
         frr_router = self.routers[sat_name]
         
-        print(f"Christoffer: frr router = {frr_router.name}")
-        print(f"Christoffer command: ip route {station.defaultIP()}/32 {format(ip1.ip)}")
+        #print(f"Christoffer: frr router = {frr_router.name}")
+        #print(f"Christoffer command: ip route {station.defaultIP()}/32 {format(ip1.ip)}")
 
         # Set a static route on the satellite node that refers to the ground station loopback IP
         # ip route {ground station ip /32} {ground station pool ip}
