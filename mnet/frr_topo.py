@@ -433,6 +433,28 @@ class NetxTopo(mininet.topo.Topo):
                 daemons=node["daemons"]
             )
 
+        # Create core
+        for name in torus_topo.ground_bgp_routers(self.graph):
+            node = self.graph.nodes[name]
+            ip = node.get("ip")
+            ip_intf = None
+            ip_addr = None
+            if ip is not None:
+                ip_intf = format(ip)
+                ip_addr = format(ip.ip)
+            self.addHost(
+                name,
+                cls=RouteNode,
+                ip=ip_intf)
+
+            frr_router: FrrRouter = FrrRouter(name, ip_addr) 
+            self.satellites.append(frr_router)
+            frr_router.configure(
+                ospf=node["ospf"],
+                vtysh=node["vtysh"],
+                daemons=node["daemons"]
+            )
+
         # Create links between routers
         for name, edge in self.graph.edges.items():
             router1 = name[0]
@@ -735,7 +757,7 @@ class FrrSimRuntime:
 
         # Set a static route on the satellite node that refers to the ground station loopback IP
         # ip route {ground station ip /32} {ground station pool ip}
-        frr_router.config_frr("staticd", [ f"ip route {station.defaultIP()}/32 {format(ip1.ip)}" ])
+        #frr_router.config_frr("staticd", [ f"ip route {station.defaultIP()}/32 {format(ip1.ip)}" ])
 
 
     def _remove_link(self, station_name: str, sat_name: str, ip_nw: ipaddress.IPv4Network, ip: ipaddress.IPv4Interface) -> None:

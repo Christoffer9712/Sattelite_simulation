@@ -16,6 +16,7 @@ NUM_RING_NODES = 40
 TYPE = "type"
 TYPE_SAT = "satellite"
 TYPE_GROUND = "ground_station"
+TYPE_GROUND_ROUTER = "ground_router"
 TYPE_CORE = "core"
 LAT = "latitude"
 LON = "longitude"
@@ -66,6 +67,17 @@ def ground_stations(graph: networkx.Graph) -> list[str]:
     result = []
     for name in graph.nodes:
         if graph.nodes[name][TYPE] == TYPE_GROUND:
+            result.append(name)
+    return result
+
+def ground_bgp_routers(graph: networkx.Graph) -> list[str]:
+    """
+    Return a list of all node names where the node is of type ground
+    """
+    # Consider converting to using yield
+    result = []
+    for name in graph.nodes:
+        if graph.nodes[name][TYPE] == TYPE_GROUND_ROUTER:
             result.append(name)
     return result
 
@@ -190,25 +202,65 @@ def add_ground_stations(graph: networkx.Graph) -> None:
     # Create ground stations with links
     # We need links because mininet doesn't handle nodes without links the
     # way we want (e.g. will not call config on the mininet node)
+
+    # Each ground GW has one router next to it connected to the ground. The router and
+    # GW should use BGP for communication
+
     graph.add_node("G_PAO")
     node = graph.nodes["G_PAO"]
     node[TYPE] = TYPE_GROUND
     node[LAT] = 37.44651
     node[LON] = -122.13861
 
+    graph.add_node("R_PAO")
+    node = graph.nodes["R_PAO"]
+    node[TYPE] = TYPE_GROUND_ROUTER
+    node[LAT] = 37.44651
+    node[LON] = -122.13861
+    graph.add_edge("G_PAO", "R_PAO")
+
     graph.add_node("G_SYD")
     node = graph.nodes["G_SYD"]
     node[TYPE] = TYPE_GROUND
     node[LAT] = -33.94056
     node[LON] = 151.17268
-    graph.add_edge("G_PAO", "G_SYD")
+
+    graph.add_node("R_SYD")
+    node = graph.nodes["R_SYD"]
+    node[TYPE] = TYPE_GROUND_ROUTER
+    node[LAT] = -33.94056
+    node[LON] = 151.17268
+    graph.add_edge("G_SYD", "R_SYD")
+    graph.add_edge("R_PAO", "R_SYD")
 
     graph.add_node("G_ZRH")
     node = graph.nodes["G_ZRH"]
     node[TYPE] = TYPE_GROUND
     node[LAT] = 47.45516
     node[LON] = 8.56350
-    graph.add_edge("G_SYD", "G_ZRH")
+
+    graph.add_node("R_ZRH")
+    node = graph.nodes["R_ZRH"]
+    node[TYPE] = TYPE_GROUND_ROUTER
+    node[LAT] = 47.45516
+    node[LON] = 8.56350
+    graph.add_edge("G_ZRH", "R_ZRH")
+    graph.add_edge("R_SYD", "R_ZRH")
+
+    graph.add_node("G_HND")
+    node = graph.nodes["G_HND"]
+    node[TYPE] = TYPE_GROUND
+    node[LAT] = 35.54852
+    node[LON] = 139.78079
+
+    graph.add_node("R_HND")
+    node = graph.nodes["R_HND"]
+    node[TYPE] = TYPE_GROUND_ROUTER
+    node[LAT] = 35.54852
+    node[LON] = 139.78079
+    graph.add_edge("R_HND", "G_HND")
+    graph.add_edge("R_ZRH", "R_HND")
+    graph.add_edge("R_HND", "R_PAO")
 
     #graph.add_node("G_LON")
     #node = graph.nodes["G_LON"]
@@ -223,14 +275,6 @@ def add_ground_stations(graph: networkx.Graph) -> None:
     #node[LAT] = 49.0096
     #node[LON] = 2.5557
     #graph.add_edge("G_LON", "G_CDG")
-
-    graph.add_node("G_HND")
-    node = graph.nodes["G_HND"]
-    node[TYPE] = TYPE_GROUND
-    node[LAT] = 35.54852
-    node[LON] = 139.78079
-    graph.add_edge("G_ZRH", "G_HND")
-    graph.add_edge("G_HND", "G_PAO")
 
 def add_core(graph: networkx.Graph) -> None:
     # Create main core with links to some ground stations

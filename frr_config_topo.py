@@ -19,11 +19,42 @@ def annotate_graph(graph: networkx.Graph):
     for each edge.
     """
     count = 1
-    for node in graph.nodes.values():
+    for name in torus_topo.satellites(graph):
+        node = graph.nodes[name]
         # Configure node with an ip address
         node["inf_count"] = 0
         node["number"] = count
-        ip = 0x0A010000 + count
+        ip = 0x0A010000 + count # 10.1.0.0
+        count += 2
+        node["ip"] = ipaddress.IPv4Interface((ip, 31))
+
+    count = 1
+    for name in torus_topo.ground_stations(graph):
+        node = graph.nodes[name]
+        # Configure node with an ip address
+        node["inf_count"] = 0
+        node["number"] = count
+        ip = 0x0A020000 + count # 10.2.0.0
+        count += 2
+        node["ip"] = ipaddress.IPv4Interface((ip, 31))
+
+    count = 1
+    for name in torus_topo.ground_bgp_routers(graph):
+        node = graph.nodes[name]
+        # Configure node with an ip address
+        node["inf_count"] = 0
+        node["number"] = count
+        ip = 0x0A030000 + count # 10.3.0.0
+        count += 2
+        node["ip"] = ipaddress.IPv4Interface((ip, 31))
+
+    count = 1
+    for name in torus_topo.cores(graph):
+        node = graph.nodes[name]
+        # Configure node with an ip address
+        node["inf_count"] = 0
+        node["number"] = count
+        ip = 0x0A040000 + count # 10.4.0.0
         count += 2
         node["ip"] = ipaddress.IPv4Interface((ip, 31))
 
@@ -73,6 +104,12 @@ def annotate_graph(graph: networkx.Graph):
         node["vtysh"] = create_vtysh_config(name)
         node["daemons"] = create_daemons_config()
 
+    for name in torus_topo.ground_bgp_routers(graph):
+        node = graph.nodes[name]
+        node["ospf"] = create_ospf_config(graph, name)
+        node["vtysh"] = create_vtysh_config(name)
+        node["daemons"] = create_daemons_config()
+
     # Generate ip link pool information for the ground stations
     for name in torus_topo.ground_stations(graph):
         node = graph.nodes[name]
@@ -88,6 +125,7 @@ def annotate_graph(graph: networkx.Graph):
             uplinks.append(uplink)
         node["uplinks"] = uplinks
         node["ospf"] = create_ospf_config(graph, name)
+        #node["bgp"] = create_bgp_config()
         node["vtysh"] = create_vtysh_config(name)
         node["daemons"] = create_daemons_config()
 
@@ -105,6 +143,12 @@ router ospf
  {redistribute}
 {networks}
 exit
+!
+"""
+
+BGP_TEMPLATE = """
+!
+router bgp 
 !
 """
 
