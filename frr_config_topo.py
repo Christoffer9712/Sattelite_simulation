@@ -58,18 +58,32 @@ def annotate_graph(graph: networkx.Graph):
         count += 2
         node["ip"] = ipaddress.IPv4Interface((ip, 31))
 
-    count = 1
-    for edge in graph.edges.values():
-        # Configure edge with a subnet
-        edge["number"] = count
-        ip = 0x0A0F0000 + count * 4 # 10.15.0.0
-        count += 1
-        edge["ip"] = ipaddress.IPv4Network((ip, 30))
+    countOspf = 1
+    countBgp = 1
+    #for edge in graph.edges.values():
+    #    # Configure edge with a subnet
+    #    edge["number"] = count
+    #    ip = 0x0A0F0000 + count * 4 # 10.15.0.0
+    #    count += 1
+    #    edge["ip"] = ipaddress.IPv4Network((ip, 30))
 
     for n1, n2 in graph.edges:
         # Set ip addresses for each end of an edge
         edge = graph.edges[n1, n2]
-        ips = list(edge["ip"].hosts())
+        if edge["routing"] == "ospf":
+            edge["number"] = countOspf
+            ip = 0x0A0F0000 + countOspf * 4 # 10.15.0.0
+            edge["ip"] = ipaddress.IPv4Network((ip, 30))
+            ips = list(edge["ip"].hosts())
+            countOspf += 1
+        elif edge["routing"] == "bgp":
+            edge["number"] = countBgp
+            ip = 0xAC100000 + countBgp * 4 # 172.16.0.0
+            edge["ip"] = ipaddress.IPv4Network((ip, 30))
+            ips = list(edge["ip"].hosts())
+            countBgp += 1
+        else:
+            raise ValueError("Routing not supported")
         graph.adj[n1][n2]["ip"] = {}
         graph.adj[n1][n2]["ip"][n1] = ipaddress.IPv4Interface((ips[0].packed, 30))
         graph.adj[n2][n1]["ip"][n2] = ipaddress.IPv4Interface((ips[1].packed, 30))
@@ -150,10 +164,12 @@ BGP_TEMPLATE = """
 !
 router bgp {bgpId}
  bgp router-id {routerIP}
+ distance bgp 200 200 200
  neighbor {neighborIP} remote-as {remoteId}
 
  address-family ipv4 unicast
   redistribute ospf
+  redistribute connected
   neighbor {neighborIP} activate
  exit-address-family
 !
@@ -174,14 +190,16 @@ def create_ospf_config(graph: networkx.Graph, name: str) -> str:
         networks_str.append(OSPF_NW_TEMPLATE.format(network=format(network)))
 
     if node["type"] == "satellite":
-        for neighbor in graph.adj[name]:
-            edge = graph.adj[name][neighbor]
-            networks.append(edge["ip"][name])
+        #for neighbor in graph.adj[name]:
+        #    edge = graph.adj[name][neighbor]
+        #    networks.append(edge["ip"][name])
             # Get one of the interface IPs for the router id
-            if ip is None:
-                ip = edge["ip"][name]
+        #    if ip is None:
+        #        ip = edge["ip"][name]
         # All links between ground GW and sat are in OSPF and are ion 10.14.0.0/16 subnet
         networks.append(ipaddress.IPv4Network(('10.14.0.0', 16)))
+        # All links between satellites are in OSPF and are in 10.15.0.0/16 subnet
+        networks.append(ipaddress.IPv4Network(('10.15.0.0', 16)))
         redistribute = ""
         bgp = ""
 
@@ -208,14 +226,15 @@ def create_ospf_config(graph: networkx.Graph, name: str) -> str:
                 edge = graph.adj[name][neighbor]
                 bgp_ip = edge['ip'][name]
                 neighbor_bgp_ip = edge["ip"][neighbor]
-            else: # No OSPF between GW and ground router
-                #print(f'Christoffer neighbor added as edge = {neighbor}')
-                edge = graph.adj[name][neighbor]
-                networks.append(edge["ip"][name])
-                # Get one of the interface IPs for the router id
-                if ip is None:
-                    ip = edge["ip"][name]
-            
+            #else: # No OSPF between GW and ground router
+            #    #print(f'Christoffer neighbor added as edge = {neighbor}')
+            #    edge = graph.adj[name][neighbor]
+            #    networks.append(edge["ip"][name])
+            #    # Get one of the interface IPs for the router id
+            #    if ip is None:
+            #        ip = edge["ip"][name]
+        # All links within ground network are in 10.15.0.0 range excepth to the GW
+        networks.append(ipaddress.IPv4Network(('10.15.0.0', 16)))    
         redistribute = "redistribute bgp"
 
         bgp = BGP_TEMPLATE.format(
@@ -226,12 +245,14 @@ def create_ospf_config(graph: networkx.Graph, name: str) -> str:
         )
 
     elif node["type"] == "core":
-        for neighbor in graph.adj[name]:
-            edge = graph.adj[name][neighbor]
-            networks.append(edge["ip"][name])
-            # Get one of the interface IPs for the router id
-            if ip is None:
-                ip = edge["ip"][name]
+        #for neighbor in graph.adj[name]:
+        #    edge = graph.adj[name][neighbor]
+        #    networks.append(edge["ip"][name])
+        #    # Get one of the interface IPs for the router id
+        #    if ip is None:
+        #        ip = edge["ip"][name]
+        # All links within ground network are in 10.15.0.0 range
+        networks.append(ipaddress.IPv4Network(('10.15.0.0', 16)))  
         redistribute = ""
         bgp = ""
     

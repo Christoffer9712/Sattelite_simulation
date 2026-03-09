@@ -183,11 +183,13 @@ def create_ring(graph: networkx.Graph, ring_num: int , num_ring_nodes: int) -> N
         if prev_node_name is not None:
             graph.add_edge(prev_node_name, node_name)
             graph.edges[prev_node_name, node_name]["inter_ring"] = False
+            graph.edges[prev_node_name, node_name]["routing"] = "ospf"
         prev_node_name = node_name
     # Create a link between first and last node
     if prev_node_name is not None:
         graph.add_edge(prev_node_name, get_node_name(ring_num, 0))
         graph.edges[prev_node_name, get_node_name(ring_num, 0)]["inter_ring"] = False
+        graph.edges[prev_node_name, get_node_name(ring_num, 0)]["routing"] = "ospf"
 
 
 def connect_rings(graph: networkx.Graph, ring1: int, ring2: int, num_ring_nodes: int) -> None:
@@ -196,6 +198,7 @@ def connect_rings(graph: networkx.Graph, ring1: int, ring2: int, num_ring_nodes:
         node2_name = get_node_name(ring2, node_num)
         graph.add_edge(node1_name, node2_name)
         graph.edges[node1_name, node2_name]["inter_ring"] = True
+        graph.edges[node1_name, node2_name]["routing"] = "ospf"
 
 
 def add_ground_stations(graph: networkx.Graph) -> None:
@@ -212,12 +215,13 @@ def add_ground_stations(graph: networkx.Graph) -> None:
     node[LAT] = 37.44651
     node[LON] = -122.13861
 
-    graph.add_node("R_PAO")
-    node = graph.nodes["R_PAO"]
+    graph.add_node("T_PAO")
+    node = graph.nodes["T_PAO"]
     node[TYPE] = TYPE_GROUND_ROUTER
     node[LAT] = 37.44651
     node[LON] = -122.13861
-    graph.add_edge("G_PAO", "R_PAO")
+    graph.add_edge("G_PAO", "T_PAO")
+    graph.edges["G_PAO", "T_PAO"]["routing"] = "bgp"
 
     graph.add_node("G_SYD")
     node = graph.nodes["G_SYD"]
@@ -225,13 +229,15 @@ def add_ground_stations(graph: networkx.Graph) -> None:
     node[LAT] = -33.94056
     node[LON] = 151.17268
 
-    graph.add_node("R_SYD")
-    node = graph.nodes["R_SYD"]
+    graph.add_node("T_SYD")
+    node = graph.nodes["T_SYD"]
     node[TYPE] = TYPE_GROUND_ROUTER
     node[LAT] = -33.94056
     node[LON] = 151.17268
-    graph.add_edge("G_SYD", "R_SYD")
-    graph.add_edge("R_PAO", "R_SYD")
+    graph.add_edge("G_SYD", "T_SYD")
+    graph.edges["G_SYD", "T_SYD"]["routing"] = "bgp"
+    #graph.add_edge("T_PAO", "T_SYD")
+    #graph.edges["T_PAO", "T_SYD"]["routing"] = "ospf"
 
     graph.add_node("G_ZRH")
     node = graph.nodes["G_ZRH"]
@@ -239,13 +245,15 @@ def add_ground_stations(graph: networkx.Graph) -> None:
     node[LAT] = 47.45516
     node[LON] = 8.56350
 
-    graph.add_node("R_ZRH")
-    node = graph.nodes["R_ZRH"]
+    graph.add_node("T_ZRH")
+    node = graph.nodes["T_ZRH"]
     node[TYPE] = TYPE_GROUND_ROUTER
     node[LAT] = 47.45516
     node[LON] = 8.56350
-    graph.add_edge("G_ZRH", "R_ZRH")
-    graph.add_edge("R_SYD", "R_ZRH")
+    graph.add_edge("G_ZRH", "T_ZRH")
+    graph.edges["G_ZRH", "T_ZRH"]["routing"] = "bgp"
+    #graph.add_edge("T_SYD", "T_ZRH")
+    #graph.edges["T_SYD", "T_ZRH"]["routing"] = "ospf"
 
     graph.add_node("G_HND")
     node = graph.nodes["G_HND"]
@@ -253,14 +261,19 @@ def add_ground_stations(graph: networkx.Graph) -> None:
     node[LAT] = 35.54852
     node[LON] = 139.78079
 
-    graph.add_node("R_HND")
-    node = graph.nodes["R_HND"]
+    graph.add_node("T_HND")
+    node = graph.nodes["T_HND"]
     node[TYPE] = TYPE_GROUND_ROUTER
     node[LAT] = 35.54852
     node[LON] = 139.78079
-    graph.add_edge("R_HND", "G_HND")
-    graph.add_edge("R_ZRH", "R_HND")
-    graph.add_edge("R_HND", "R_PAO")
+    graph.add_edge("T_HND", "G_HND")
+    graph.edges["T_HND", "G_HND"]["routing"] = "bgp"
+    
+    #graph.add_edge("T_ZRH", "T_HND")
+    #graph.edges["T_ZRH", "T_HND"]["routing"] = "ospf"
+
+    #graph.add_edge("T_HND", "T_PAO")
+    #graph.edges["T_HND", "T_PAO"]["routing"] = "ospf"
 
     #graph.add_node("G_LON")
     #node = graph.nodes["G_LON"]
@@ -284,8 +297,8 @@ def add_core(graph: networkx.Graph) -> None:
     node[TYPE] = TYPE_CORE
     node[LAT] =  50.033333
     node[LON] = 8.570556
-    graph.add_edge("C_FRA", "R_ZRH")
-
+    graph.add_edge("C_FRA", "T_ZRH")
+    graph.edges["C_FRA", "T_ZRH"]["routing"] = "ospf"
     
 
 #
