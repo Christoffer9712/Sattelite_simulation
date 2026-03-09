@@ -62,7 +62,7 @@ def annotate_graph(graph: networkx.Graph):
     for edge in graph.edges.values():
         # Configure edge with a subnet
         edge["number"] = count
-        ip = 0x0A0F0000 + count * 4
+        ip = 0x0A0F0000 + count * 4 # 10.15.0.0
         count += 1
         edge["ip"] = ipaddress.IPv4Network((ip, 30))
 
@@ -95,15 +95,13 @@ def annotate_graph(graph: networkx.Graph):
         node["daemons"] = create_daemons_config()
 
     # Generate config information for the cores
-    # Cores and groundstations belong to one OSPF enabled network
-    # The satellites belong to another OSPF enabled network where
-    # static links are added to ground station dynamically
     for name in torus_topo.cores(graph):
         node = graph.nodes[name]
         node["ospf"] = create_ospf_config(graph, name)
         node["vtysh"] = create_vtysh_config(name)
         node["daemons"] = create_daemons_config()
 
+    # Generate config information for the ground routers
     for name in torus_topo.ground_bgp_routers(graph):
         node = graph.nodes[name]
         node["ospf"] = create_ospf_config(graph, name)
@@ -111,11 +109,14 @@ def annotate_graph(graph: networkx.Graph):
         node["daemons"] = create_daemons_config()
 
     # Generate ip link pool information for the ground stations
+    # Christoffer, I now create OSPF config for the GW towards sat net
+    count = 1
     for name in torus_topo.ground_stations(graph):
         node = graph.nodes[name]
         uplinks = []
+
         for i in range(4):
-            ip = 0x0A0F0000 + count * 4
+            ip = 0x0A0E0000 + count * 4 # 10.14.0.0
             count += 1
             nw_link = ipaddress.IPv4Network((ip, 30))
             ips = list(nw_link.hosts())
@@ -123,12 +124,11 @@ def annotate_graph(graph: networkx.Graph):
                       "ip1": ipaddress.IPv4Interface((ips[0].packed, 30)),
                       "ip2": ipaddress.IPv4Interface((ips[1].packed, 30))}
             uplinks.append(uplink)
+
         node["uplinks"] = uplinks
         node["ospf"] = create_ospf_config(graph, name)
-        #node["bgp"] = create_bgp_config()
         node["vtysh"] = create_vtysh_config(name)
         node["daemons"] = create_daemons_config()
-
 
 OSPF_TEMPLATE = """
 hostname {name}
@@ -143,17 +143,23 @@ router ospf
  {redistribute}
 {networks}
 exit
-!
+{bgp}
 """
 
 BGP_TEMPLATE = """
 !
-router bgp 
+router bgp {bgpId}
+ bgp router-id {routerIP}
+ neighbor {neighborIP} remote-as {remoteId}
+
+ address-family ipv4 unicast
+  redistribute ospf
+  neighbor {neighborIP} activate
+ exit-address-family
 !
 """
 
 OSPF_NW_TEMPLATE = """ network {network} area 0.0.0.0"""
-
 
 def create_ospf_config(graph: networkx.Graph, name: str) -> str:
     node = graph.nodes[name]
@@ -167,31 +173,81 @@ def create_ospf_config(graph: networkx.Graph, name: str) -> str:
         network = ipaddress.IPv4Network((ip.ip, 32))
         networks_str.append(OSPF_NW_TEMPLATE.format(network=format(network)))
 
-    for neighbor in graph.adj[name]:
-        edge = graph.adj[name][neighbor]
-        networks.append(edge["ip"][name])
-        # Get one of the interface IPs for the router id
-        if ip is None:
-            ip = edge["ip"][name]
+    if node["type"] == "satellite":
+        for neighbor in graph.adj[name]:
+            edge = graph.adj[name][neighbor]
+            networks.append(edge["ip"][name])
+            # Get one of the interface IPs for the router id
+            if ip is None:
+                ip = edge["ip"][name]
+        # All links between ground GW and sat are in OSPF and are ion 10.14.0.0/16 subnet
+        networks.append(ipaddress.IPv4Network(('10.14.0.0', 16)))
+        redistribute = ""
+        bgp = ""
 
+    elif node["type"] == "ground_station":
+        networks.append(ipaddress.IPv4Network(('10.14.0.0', 16)))
+        redistribute = "redistribute bgp"
+        for neighbor in graph.adj[name]: # only 1 neighbor (ground router)
+            edge = graph.adj[name][neighbor]
+            bgp_ip = edge['ip'][name]
+            neighbor_bgp_ip = edge["ip"][neighbor]
+            #print(f"Christoffer ground_station node = {name}, neighbor = {neighbor}, neighbor IP = {neighbor_bgp_ip.ip}, current ip = {bgp_ip.ip}") 
+        bgp = BGP_TEMPLATE.format(
+            bgpId=65001, 
+            routerIP=ip.ip,
+            neighborIP=neighbor_bgp_ip.ip,
+            remoteId=65002
+        )
+
+    elif node["type"] == "ground_router":
+        for neighbor in graph.adj[name]:
+            #print(f'Christoffer neighbor = {neighbor}')
+            
+            if neighbor[0] == 'G': 
+                edge = graph.adj[name][neighbor]
+                bgp_ip = edge['ip'][name]
+                neighbor_bgp_ip = edge["ip"][neighbor]
+            else: # No OSPF between GW and ground router
+                #print(f'Christoffer neighbor added as edge = {neighbor}')
+                edge = graph.adj[name][neighbor]
+                networks.append(edge["ip"][name])
+                # Get one of the interface IPs for the router id
+                if ip is None:
+                    ip = edge["ip"][name]
+            
+        redistribute = "redistribute bgp"
+
+        bgp = BGP_TEMPLATE.format(
+            bgpId=65002, 
+            routerIP=ip.ip,
+            neighborIP=neighbor_bgp_ip.ip,
+            remoteId=65001
+        )
+
+    elif node["type"] == "core":
+        for neighbor in graph.adj[name]:
+            edge = graph.adj[name][neighbor]
+            networks.append(edge["ip"][name])
+            # Get one of the interface IPs for the router id
+            if ip is None:
+                ip = edge["ip"][name]
+        redistribute = ""
+        bgp = ""
+    
     for network in networks:
         networks_str.append(OSPF_NW_TEMPLATE.format(network=format(network)))
 
-    redistribute = ""
-    if node["type"] == "satellite":
-        redistribute = "redistribute static" # Needed for satellites to be aware of ground stations
-         
-
     # Router ID must be a plain IP, no subnet.
     return OSPF_TEMPLATE.format(
-        name=name, ip=format(ip.ip), redistribute=redistribute, networks="\n".join(networks_str)
+        name=name, ip=format(ip.ip), redistribute=redistribute, networks="\n".join(networks_str), bgp=bgp
     )
 
 
 def create_daemons_config() -> str:
     return """#
 ospfd=yes
-staticd=yes
+bgpd=yes
 vtysh_enable=yes
 zebra_options="  -A 127.0.0.1 -s 90000000"
 mgmtd_options="  -A 127.0.0.1"
@@ -205,7 +261,6 @@ def create_vtysh_config(name: str) -> str:
 hostname {name}""".format(
         name=name
     )
-
 
 def dump_graph(graph: networkx.Graph):
     for name, node in graph.nodes.items():

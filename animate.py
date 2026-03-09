@@ -103,8 +103,8 @@ class World(DirectObject):
                 pos2 = self.satellites[node_list[0]].getPos()
             else:
                 pos2 = self.satellites[node_list[i+1]].getPos()
-            print(f"Chris Pos1 = {pos1}")
-            print(f"Chris Pos1 = {pos2}")
+            #print(f"Chris Pos1 = {pos1}")
+            #print(f"Chris Pos1 = {pos2}")
             lines = LineSegs()
             lines.moveTo(pos1)
             lines.drawTo(pos2)
@@ -254,7 +254,7 @@ class World(DirectObject):
         self.earth.setTexture(earth_tex, 1)
         self.earth.reparentTo(self.base)
         self.earth.setScale(self.earth_size_scale)
-        self.earth.setHpr(-40, 0, 0)
+        self.earth.setHpr(-32, 0, 0)
 
     def processPositionUpdate(self, update: PositionUpdate):
         time_now = datetime.datetime.now(tz=timezone.utc)

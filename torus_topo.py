@@ -284,7 +284,7 @@ def add_core(graph: networkx.Graph) -> None:
     node[TYPE] = TYPE_CORE
     node[LAT] =  50.033333
     node[LON] = 8.570556
-    graph.add_edge("C_FRA", "G_ZRH")
+    graph.add_edge("C_FRA", "R_ZRH")
 
     
 

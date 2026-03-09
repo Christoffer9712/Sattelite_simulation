@@ -232,7 +232,7 @@ class FrrRouter(MNetNodeWrap):
 
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         path = FrrRouter.VTY_DIR.format(node=self.name, daemon=daemon)
-        print(f"Christoffer: path = {path}")
+        #print(f"Christoffer: path = {path}")
         result = True
         try:
             sock.connect(path)
@@ -257,7 +257,7 @@ class FrrRouter(MNetNodeWrap):
     def _send_frr_cmd(self, sock, msg: bytes) -> bool:
         sock.sendall(msg)
         data = sock.recv(10000)
-        print(f"Christoffer data = {data}")
+        #print(f"Christoffer data = {data}")
         size = len(data)
         if size > 0 and data[size-1] == 0:
             return True
@@ -433,7 +433,7 @@ class NetxTopo(mininet.topo.Topo):
                 daemons=node["daemons"]
             )
 
-        # Create core
+        # Create bgp routers
         for name in torus_topo.ground_bgp_routers(self.graph):
             node = self.graph.nodes[name]
             ip = node.get("ip")
@@ -471,7 +471,7 @@ class NetxTopo(mininet.topo.Topo):
             ip2 = edge["ip"][router2]
             intf2 = edge["intf"][router2]
 
-            print(f"Chris: addLink, router1={router1}, router2={router2}, intf1={intf1}, intf2={intf2}")
+        #    print(f"Chris: addLink, router1={router1}, router2={router2}, intf1={intf1}, intf2={intf2}")
             self.addLink(
                 router1,
                 router2,
@@ -757,7 +757,7 @@ class FrrSimRuntime:
 
         # Set a static route on the satellite node that refers to the ground station loopback IP
         # ip route {ground station ip /32} {ground station pool ip}
-        #frr_router.config_frr("staticd", [ f"ip route {station.defaultIP()}/32 {format(ip1.ip)}" ])
+    #    frr_router.config_frr("staticd", [ f"ip route {station.defaultIP()}/32 {format(ip1.ip)}" ])
 
 
     def _remove_link(self, station_name: str, sat_name: str, ip_nw: ipaddress.IPv4Network, ip: ipaddress.IPv4Interface) -> None:
@@ -766,7 +766,7 @@ class FrrSimRuntime:
         # Remove static route
         station = self.ground_stations[station_name]
         frr_router = self.satellites[sat_name]
-        frr_router.config_frr("staticd", [ f"no ip route {station.defaultIP()}/32 {format(ip.ip)}" ])
+     #   frr_router.config_frr("staticd", [ f"no ip route {station.defaultIP()}/32 {format(ip.ip)}" ])
         self.net.delLinkBetween(station_node, sat_node)
 
     def _update_default_route(self, station: GroundStation) -> None:
