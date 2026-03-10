@@ -70,7 +70,7 @@ def ground_stations(graph: networkx.Graph) -> list[str]:
             result.append(name)
     return result
 
-def ground_bgp_routers(graph: networkx.Graph) -> list[str]:
+def ground_routers(graph: networkx.Graph) -> list[str]:
     """
     Return a list of all node names where the node is of type ground
     """

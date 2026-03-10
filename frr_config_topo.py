@@ -39,7 +39,7 @@ def annotate_graph(graph: networkx.Graph):
         node["ip"] = ipaddress.IPv4Interface((ip, 31))
 
     count = 1
-    for name in torus_topo.ground_bgp_routers(graph):
+    for name in torus_topo.ground_routers(graph):
         node = graph.nodes[name]
         # Configure node with an ip address
         node["inf_count"] = 0
@@ -106,21 +106,21 @@ def annotate_graph(graph: networkx.Graph):
         node = graph.nodes[name]
         node["ospf"] = create_ospf_config(graph, name)
         node["vtysh"] = create_vtysh_config(name)
-        node["daemons"] = create_daemons_config()
+        node["daemons"] = create_daemons_config(node["type"])
 
     # Generate config information for the cores
     for name in torus_topo.cores(graph):
         node = graph.nodes[name]
         node["ospf"] = create_ospf_config(graph, name)
         node["vtysh"] = create_vtysh_config(name)
-        node["daemons"] = create_daemons_config()
+        node["daemons"] = create_daemons_config(node["type"])
 
     # Generate config information for the ground routers
-    for name in torus_topo.ground_bgp_routers(graph):
+    for name in torus_topo.ground_routers(graph):
         node = graph.nodes[name]
         node["ospf"] = create_ospf_config(graph, name)
         node["vtysh"] = create_vtysh_config(name)
-        node["daemons"] = create_daemons_config()
+        node["daemons"] = create_daemons_config(node["type"])
 
     # Generate ip link pool information for the ground stations
     # Christoffer, I now create OSPF config for the GW towards sat net
@@ -142,7 +142,7 @@ def annotate_graph(graph: networkx.Graph):
         node["uplinks"] = uplinks
         node["ospf"] = create_ospf_config(graph, name)
         node["vtysh"] = create_vtysh_config(name)
-        node["daemons"] = create_daemons_config()
+        node["daemons"] = create_daemons_config(node["type"])
 
 OSPF_TEMPLATE = """
 hostname {name}
@@ -155,9 +155,9 @@ service integrated-vtysh-config
 router ospf
  ospf router-id {ip}
  {redistribute}
-{networks}
-exit
+ {networks}
 {bgp}
+exit
 """
 
 BGP_TEMPLATE = """
@@ -175,7 +175,7 @@ router bgp {bgpId}
 !
 """
 
-OSPF_NW_TEMPLATE = """ network {network} area 0.0.0.0"""
+OSPF_NW_TEMPLATE = """network {network} area 0.0.0.0"""
 
 def create_ospf_config(graph: networkx.Graph, name: str) -> str:
     node = graph.nodes[name]
@@ -265,17 +265,17 @@ def create_ospf_config(graph: networkx.Graph, name: str) -> str:
     )
 
 
-def create_daemons_config() -> str:
-    return """#
+def create_daemons_config(type: str) -> str:
+    msg = """#
 ospfd=yes
-bgpd=yes
+bgpd={}
 vtysh_enable=yes
 zebra_options="  -A 127.0.0.1 -s 90000000"
 mgmtd_options="  -A 127.0.0.1"
 ospfd_options="  -A 127.0.0.1"
 staticd_options="  -A 127.0.0.1"
     """
-
+    return msg.format("yes" if type in ["ground_station", "ground_router"] else "no")
 
 def create_vtysh_config(name: str) -> str:
     return """service integrated-vtysh-config

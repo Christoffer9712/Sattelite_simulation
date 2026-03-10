@@ -365,6 +365,8 @@ class NetxTopo(mininet.topo.Topo):
         self.graph = graph
         self.satellites: list[FrrRouter] = []
         self.ground_stations: list[GroundStation] = []
+        self.cores: list[FrrRouter] = []
+        self.ground_routers: list[FrrRouter] = []
         super().__init__()
 
     def build(self, *args, **params):
@@ -426,7 +428,7 @@ class NetxTopo(mininet.topo.Topo):
                 ip=ip_intf)
 
             frr_router: FrrRouter = FrrRouter(name, ip_addr) 
-            self.satellites.append(frr_router)
+            self.cores.append(frr_router)
             frr_router.configure(
                 ospf=node["ospf"],
                 vtysh=node["vtysh"],
@@ -434,7 +436,7 @@ class NetxTopo(mininet.topo.Topo):
             )
 
         # Create bgp routers
-        for name in torus_topo.ground_bgp_routers(self.graph):
+        for name in torus_topo.ground_routers(self.graph):
             node = self.graph.nodes[name]
             ip = node.get("ip")
             ip_intf = None
@@ -448,7 +450,7 @@ class NetxTopo(mininet.topo.Topo):
                 ip=ip_intf)
 
             frr_router: FrrRouter = FrrRouter(name, ip_addr) 
-            self.satellites.append(frr_router)
+            self.ground_routers.append(frr_router)
             frr_router.configure(
                 ospf=node["ospf"],
                 vtysh=node["vtysh"],
@@ -493,6 +495,8 @@ class FrrSimRuntime:
         self.nodes: dict[str, MNetNodeWrap] = {}
         self.satellites: dict[str, FrrRouter] = {}
         self.ground_stations: dict[str, GroundStation] = {}
+        self.cores: dict[str, FrrRouter] = {}
+        self.ground_routers: dict[str, FrrRouter] = {}
         self.stable_monitor = stable_monitor
 
         # Create monitoring DB file.
@@ -506,6 +510,12 @@ class FrrSimRuntime:
         for ground_station in topo.ground_stations:
             self.nodes[ground_station.name] = ground_station
             self.ground_stations[ground_station.name] = ground_station
+        for core in topo.cores:
+            self.nodes[core.name] = core
+            self.cores[core.name] = core
+        for ground_router in topo.ground_routers:
+            self.nodes[ground_router.name] = ground_router
+            self.ground_routers[ground_router.name] = ground_router
 
         self.stat_samples = []
         self.net = net
@@ -521,6 +531,13 @@ class FrrSimRuntime:
         # Stable targets - to monitor
         for router in self.satellites.values():
             data.append((router.name, router.defaultIP(), router.stable_node()))
+        # Stable targets - to monitor
+        for ground_router in self.ground_routers.values():
+            data.append((ground_router.name, ground_router.defaultIP(), ground_router.stable_node()))
+
+        for core in self.cores.values():
+            data.append((core.name, core.defaultIP(), core.stable_node()))
+        
         # Not stable targets - don't monitor
         for station in self.ground_stations.values():
             data.append((station.name, station.defaultIP(), station.stable_node()))
