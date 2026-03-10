@@ -144,6 +144,9 @@ def annotate_graph(graph: networkx.Graph):
         node["vtysh"] = create_vtysh_config(name)
         node["daemons"] = create_daemons_config(node["type"])
 
+# Christoffer, want to decrease Hello, and dead intervals
+# Probably want to configure OSPF per interface, now I configure based on networks
+# Look into bfd for faster failure detection
 OSPF_TEMPLATE = """
 hostname {name}
 frr defaults datacenter

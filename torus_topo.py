@@ -236,8 +236,8 @@ def add_ground_stations(graph: networkx.Graph) -> None:
     node[LON] = 151.17268
     graph.add_edge("G_SYD", "T_SYD")
     graph.edges["G_SYD", "T_SYD"]["routing"] = "bgp"
-    #graph.add_edge("T_PAO", "T_SYD")
-    #graph.edges["T_PAO", "T_SYD"]["routing"] = "ospf"
+    graph.add_edge("T_PAO", "T_SYD")
+    graph.edges["T_PAO", "T_SYD"]["routing"] = "ospf"
 
     graph.add_node("G_ZRH")
     node = graph.nodes["G_ZRH"]
@@ -252,8 +252,8 @@ def add_ground_stations(graph: networkx.Graph) -> None:
     node[LON] = 8.56350
     graph.add_edge("G_ZRH", "T_ZRH")
     graph.edges["G_ZRH", "T_ZRH"]["routing"] = "bgp"
-    #graph.add_edge("T_SYD", "T_ZRH")
-    #graph.edges["T_SYD", "T_ZRH"]["routing"] = "ospf"
+    graph.add_edge("T_SYD", "T_ZRH")
+    graph.edges["T_SYD", "T_ZRH"]["routing"] = "ospf"
 
     graph.add_node("G_HND")
     node = graph.nodes["G_HND"]
@@ -269,11 +269,11 @@ def add_ground_stations(graph: networkx.Graph) -> None:
     graph.add_edge("T_HND", "G_HND")
     graph.edges["T_HND", "G_HND"]["routing"] = "bgp"
     
-    #graph.add_edge("T_ZRH", "T_HND")
-    #graph.edges["T_ZRH", "T_HND"]["routing"] = "ospf"
+    graph.add_edge("T_ZRH", "T_HND")
+    graph.edges["T_ZRH", "T_HND"]["routing"] = "ospf"
 
-    #graph.add_edge("T_HND", "T_PAO")
-    #graph.edges["T_HND", "T_PAO"]["routing"] = "ospf"
+    graph.add_edge("T_HND", "T_PAO")
+    graph.edges["T_HND", "T_PAO"]["routing"] = "ospf"
 
     #graph.add_node("G_LON")
     #node = graph.nodes["G_LON"]
