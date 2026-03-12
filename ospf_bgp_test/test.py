@@ -2,12 +2,19 @@ from mininet.net import Mininet
 from mininet.node import RemoteController
 from mininet.log import setLogLevel, info
 from mininet.cli import CLI
-import configNw
+import configNwIpv4
+import configNwIpv6
 import runNw
 
 
-def run():
-    print("Started run")
+def run(ipVersion=4):
+    ipVersion = 6
+    if ipVersion == 4:
+        print("Started run with IPv4")
+        configNw = configNwIpv4
+    elif ipVersion == 6:
+        print("Started run with IPv6")
+        configNw = configNwIpv6
     # Create a networkx graph annoted with FRR configs
     graph = configNw.create_network()
     configNw.annotate_graph(graph)
