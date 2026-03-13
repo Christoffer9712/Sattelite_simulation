@@ -71,8 +71,12 @@ def annotate_graph(graph: networkx.Graph) -> networkx.Graph:
     # Add loop-back IP
     count1 = 1
     count2 = 1
+    countId = 1
     for name in graph.nodes():
         node = graph.nodes[name]
+        id = 0x0A000000 + countId # 10.0.0.0
+        countId += 1
+        node["router_id"] = ipaddress.IPv4Interface((id, 32))
         if name[1] == "0":
             ip = 0xFC0010000000000000000000000000 + count1 # fc00:1::/128 range for nw1
             count1 += 1 #2?
@@ -83,7 +87,7 @@ def annotate_graph(graph: networkx.Graph) -> networkx.Graph:
             ip = 0xFC0020000000000000000000000000 + count2 # fc00:2::/128 range for nw2
             count2 += 1
             node["ip"] = ipaddress.IPv6Interface((ip, 128))
-            node['defaultGateway'] = format(ipaddress.IPv6Address(0xFC0020000000000000000000000002)) # IP of R1_0
+            node['defaultGateway'] = format(ipaddress.IPv6Address(0xFC0020000000000000000000000001)) # IP of R1_0
 
     countOspf = 1
     countBgp = 1
@@ -129,14 +133,14 @@ OSPF_TEMPLATE = """
 hostname {name}
 frr defaults datacenter
 log syslog informational
-ip forwarding
+ipv6 forwarding
 service integrated-vtysh-config
 {addDefaultGateway} 
 !
-router ospf
- ospf router-id {ip}
+router ospf6
+ ospf router-id {router_id}
  {redistribute}
-{networks}
+{interfaces}
 
 {bgp}
 """
@@ -144,79 +148,73 @@ router ospf
 BGP_TEMPLATE = """
 !
 router bgp {bgpId}
- bgp router-id {routerIP}
- distance bgp 200 200 200
+ bgp router-id {router_id}
  neighbor {neighborIP} remote-as {remoteId}
 
  address-family ipv6 unicast
   redistribute connected
   redistribute ospf
-  neighbor {neighborIP} next-hop-self
+  neighbor {neighborIP} activate
  exit-address-family
 !
 """
 
-OSPF_NW_TEMPLATE = """ network {network} area 0.0.0.0"""
+OSPF_INTERFACE_TEMPLATE = """ interface {interface} area 0.0.0.0"""
 
 def create_ospf_config(graph: networkx.Graph, name: str) -> str:
     node = graph.nodes[name]
     ip = node.get("ip")
-    networks = []
-    networks_str = []
+    ospf_interfaces = []
 
-    if ip is not None:
-        network = ipaddress.IPv6Network((ip.ip, 128))
-        networks_str.append(OSPF_NW_TEMPLATE.format(network=format(network)))
+    ospf_interfaces.append(OSPF_INTERFACE_TEMPLATE.format(interface="loop"))
+    redistribute = ""
+    bgp = ""
 
-        # All links between satellites are in OSPF and are in fb00:1::/64 subnet
-        networks_str.append(OSPF_NW_TEMPLATE.format(network=ipaddress.IPv6Network(('fb00:1::', 64))))
-        redistribute = ""
-        bgp = ""
+        #redistribute = "" #"redistribute bgp" Not needed if setting BGP as default GW
 
-    if node["bgp_edge"]:
-        redistribute = "" #"redistribute bgp" Not needed if setting BGP as default GW
+    for neighbor in graph.adj[name]:
+        ip_net = graph.edges[name, neighbor]["ip"][name]
+        
+        if ip_net in ipaddress.IPv6Network("fb:20::/64"): # Check if this is a BGP edge
+            edge = graph.adj[name][neighbor]
+            bgp_ip = edge['ip'][name]
+            neighbor_bgp_ip = edge["ip"][neighbor]
 
-        for neighbor in graph.adj[name]:
-            ip_net = graph.edges[name, neighbor]["ip"][name]
-            print(f'Chris ip_net = {ip_net}, ip_net in fb:20::/64 = {ip_net in ipaddress.IPv6Network("fb:20::/64")}')
-            if ip_net in ipaddress.IPv6Network("fb:20::/64"):
-                edge = graph.adj[name][neighbor]
-                bgp_ip = edge['ip'][name]
-                neighbor_bgp_ip = edge["ip"][neighbor]
-                #print(f'Chris ip = {bgp_ip} neighbor_bgp_ip = {neighbor_bgp_ip}')
-                break
+            if name[1] == "0":
+                bgpId = 65001
+                remoteId = 65002
+            elif name[1] == "1":
+                bgpId = 65002
+                remoteId = 65001
 
-        if name[1] == "0":
-            bgpId = 65001
-            remoteId = 65002
-        elif name[1] == "1":
-            bgpId = 65002
-            remoteId = 65001
+            bgp = BGP_TEMPLATE.format(
+                bgpId=bgpId, 
+                router_id=format(node["router_id"].ip),
+                neighborIP=neighbor_bgp_ip.ip,
+                remoteId=remoteId
+            )
+            addDefaultGateway = ""
+        else:
+            ospf_interfaces.append(OSPF_INTERFACE_TEMPLATE.format(interface=graph.adj[name][neighbor]["intf"][name]))
 
-        bgp = BGP_TEMPLATE.format(
-            bgpId=bgpId, 
-            routerIP=ip.ip,
-            neighborIP=neighbor_bgp_ip.ip,
-            remoteId=remoteId
-        )
-        addDefaultGateway = ""
-    else:
-        addDefaultGateway = f"ip route 0::/0 {format(node['defaultGateway'])}"
+    if bgp == "": # If not a BGP edge, add default gateway for OSPF
+        addDefaultGateway = f"""!
+ipv6 route 0::/0 {format(node['defaultGateway'])}"""
     # Router ID must be a plain IP, no subnet.
     return OSPF_TEMPLATE.format(
-        name=name,addDefaultGateway = addDefaultGateway, ip=format(ip.ip), 
-        redistribute=redistribute, networks="\n".join(networks_str), bgp=bgp
+        name=name,addDefaultGateway = addDefaultGateway, router_id=format(node["router_id"].ip),
+        redistribute=redistribute, interfaces="\n".join(ospf_interfaces), bgp=bgp
     )
 
 
 def create_daemons_config() -> str:
     return """#
-ospfd=yes
+ospf6d=yes
 bgpd=yes
 vtysh_enable=yes
 zebra_options="  -A 127.0.0.1 -s 90000000"
 mgmtd_options="  -A 127.0.0.1"
-ospfd_options="  -A 127.0.0.1"
+ospf6d_options="  -A 127.0.0.1"
 staticd_options="  -A 127.0.0.1"
     """
 
@@ -257,7 +255,6 @@ class RouteNode(mininet.node.Node):
     """
 
     def __init__(self, name, **params):
-        print("Chris Route node init")
         mininet.node.Node.__init__(self, name, **params)
 
         # Optional loopback interface
@@ -405,7 +402,6 @@ class FrrRouter(MNetNodeWrap):
     def config_frr(self, daemon: str, commands: list[str]) -> bool:
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         path = FrrRouter.VTY_DIR.format(node=self.name, daemon=daemon)
-        print(f"config_frr Christoffer: path = {path}")
         result = True
         try:
             sock.connect(path)
