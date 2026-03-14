@@ -75,8 +75,9 @@ def annotate_graph(graph: networkx.Graph) -> networkx.Graph:
     for name in graph.nodes():
         node = graph.nodes[name]
         id = 0x0A000000 + countId # 10.0.0.0
-        countId += 1
         node["router_id"] = ipaddress.IPv4Interface((id, 32))
+        srv6Prefix = 0x220000000000000000000000000000 + countId*0x0010000000000000000000000000 # 22:: Unique local address space for SRv6
+        node["srv6Prefix"] = format(ipaddress.IPv6Interface((srv6Prefix, 48)))
         if name[1] == "0":
             ip = 0xFC0010000000000000000000000000 + count1 # fc00:1::/128 range for nw1
             count1 += 1 #2?
@@ -88,7 +89,9 @@ def annotate_graph(graph: networkx.Graph) -> networkx.Graph:
             count2 += 1
             node["ip"] = ipaddress.IPv6Interface((ip, 128))
             node['defaultGateway'] = format(ipaddress.IPv6Address(0xFC0020000000000000000000000001)) # IP of R1_0
-
+        
+        countId += 1
+    
     countOspf = 1
     countBgp = 1
 
@@ -135,13 +138,14 @@ frr defaults datacenter
 log syslog informational
 ipv6 forwarding
 service integrated-vtysh-config
-{addDefaultGateway} 
+{addDefaultGateway}
 !
 router ospf6
  ospf router-id {router_id}
- {redistribute}
+{redistribute}
 {interfaces}
 
+{srv6}
 {bgp}
 """
 
@@ -161,15 +165,24 @@ router bgp {bgpId}
 
 OSPF_INTERFACE_TEMPLATE = """ interface {interface} area 0.0.0.0"""
 
+SRV6_TEMPLATE = """
+ipv6 route {srv6Prefix} Null0
+!
+segment-routing
+ srv6
+  locators
+   locator MAIN
+    prefix {srv6Prefix} format usid-f3216
+"""
 def create_ospf_config(graph: networkx.Graph, name: str) -> str:
     node = graph.nodes[name]
     ip = node.get("ip")
     ospf_interfaces = []
 
     ospf_interfaces.append(OSPF_INTERFACE_TEMPLATE.format(interface="loop"))
-    redistribute = ""
+    redistribute = """ redistribute static
+ redistribute connected""" # Used for srv6 prefixes
     bgp = ""
-
         #redistribute = "" #"redistribute bgp" Not needed if setting BGP as default GW
 
     for neighbor in graph.adj[name]:
@@ -203,8 +216,9 @@ ipv6 route 0::/0 {format(node['defaultGateway'])}"""
     # Router ID must be a plain IP, no subnet.
     return OSPF_TEMPLATE.format(
         name=name,addDefaultGateway = addDefaultGateway, router_id=format(node["router_id"].ip),
-        redistribute=redistribute, interfaces="\n".join(ospf_interfaces), bgp=bgp
+        redistribute=redistribute, interfaces="\n".join(ospf_interfaces), bgp=bgp, srv6=SRV6_TEMPLATE.format(srv6Prefix=format(node["srv6Prefix"]))
     )
+    
 
 
 def create_daemons_config() -> str:
@@ -518,11 +532,41 @@ class FrrSimRuntime:
 
         self.net = net
 
+        # Add a host to test connectivity and routing
+        net.addHost("ue1")
+        net.addLink("ue1", "R0_0", intfName1="ue1-ethR0_0", intfName2="R0_0-ethUe1", cls=mininet.link.TCLink, params1={"delay": "10ms"}, params2={"delay": "10ms"})
+        net.getNodeByName("ue1").cmd("ip addr add fa::1/126 dev ue1-ethR0_0")
+        net.getNodeByName("ue1").cmd("ip route add 0::0/0 via fa::2 dev ue1-ethR0_0")
+        net.getNodeByName("ue1").cmd("ip -6 route add fc:20::2 encap seg6 mode encap segs 22:10:0:1::,22:20:0:1::,22:30:0:1:: dev ue1-ethR0_0")
+        net.getNodeByName("ue1").cmd("ip -6 route add fc:20::1 encap seg6 mode encap segs 22:10:0:2::,22:30:0:1:: dev ue1-ethR0_0")
+
+        net.getNodeByName("R0_0").cmd("ip addr add fa::2/126 dev R0_0-ethUe1")
+        
         for name, node in self.graph.nodes.items():
-            ip = node.get("ip")
-            if ip is not None:
-                ip = format(ip)
-                self.net.getNodeByName(name).cmd(f"ip addr add {ip} dev loop")
+            self.net.getNodeByName(name).cmd("sysctl -w net.ipv6.conf.all.seg6_enabled=1")
+            ip = format(node.get("ip"))
+            self.net.getNodeByName(name).cmd(f"ip addr add {ip} dev loop")
+            if name == "R0_0":
+                # Incoming traffic to R0_0 with destination 22:10:0:1:: will be encapsulated and sent to R0_1
+                #self.net.getNodeByName(name).cmd(f"ip -6 route add 22:10:0:1:: encap seg6local action End.DT6 table 254 dev lo")
+                self.net.getNodeByName(name).cmd(f"ip -6 route add 22:10:0:1:: encap seg6local action End.X nh6 22:20:0:1:: dev R0_0-ethR0_1")
+                self.net.getNodeByName(name).cmd(f"ip -6 route add 22:10:0:2:: encap seg6local action End.X nh6 22:30:0:1:: dev R0_0-ethR0_2")
+                self.net.getNodeByName(name).cmd("sysctl -w net.ipv6.conf.R0_0-ethUe1.seg6_enabled=1")
+                self.net.getNodeByName(name).cmd("sysctl -w net.ipv6.conf.R0_0-ethR0_1.seg6_enabled=1")
+                self.net.getNodeByName(name).cmd("sysctl -w net.ipv6.conf.R0_0-ethR0_2.seg6_enabled=1")
+                self.net.getNodeByName(name).cmd("ip -6 addr add 22:10:0:1::/48 dev lo")
+            elif name == "R0_1":
+                # R0_1 will decapsulate and forward to R0_2
+                self.net.getNodeByName(name).cmd(f"ip -6 route add 22:20:0:1:: encap seg6local action End.X nh6 22:30:0:1:: dev R0_1-ethR0_2")
+                self.net.getNodeByName(name).cmd("sysctl -w net.ipv6.conf.R0_1-ethR0_2.seg6_enabled=1")
+                self.net.getNodeByName(name).cmd("sysctl -w net.ipv6.conf.R0_1-ethR0_0.seg6_enabled=1")
+                self.net.getNodeByName(name).cmd("ip -6 addr add 22:20:0:1::/128 dev lo")
+            elif name == "R0_2":
+                # R0_2 will decapsulate and forward it normally according to the destination IP (for now)
+                self.net.getNodeByName(name).cmd(f"ip -6 route add 22:30:0:1:: encap seg6local action End.DT6 table 254 dev lo")
+                self.net.getNodeByName(name).cmd("sysctl -w net.ipv6.conf.R0_2-ethR0_1.seg6_enabled=1")
+                self.net.getNodeByName(name).cmd("sysctl -w net.ipv6.conf.R0_2-ethR0_0.seg6_enabled=1")
+                self.net.getNodeByName(name).cmd("ip -6 addr add 22:30:0:1::/128 dev lo")
 
         for name, edge in self.graph.edges.items():
             router1 = name[0]
