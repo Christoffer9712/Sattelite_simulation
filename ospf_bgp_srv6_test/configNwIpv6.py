@@ -1,6 +1,7 @@
 import networkx
 import mininet.topo
 import mininet.node
+from mininet.node import Switch
 import mininet.net
 import mininet.link
 import mininet.util
@@ -8,6 +9,40 @@ import ipaddress
 import pwd
 import os
 import grp
+import time
+
+
+class P4Switch(Switch):
+    def __init__(self, name, json_path, thrift_port=9090, **kwargs):
+        Switch.__init__(self, name, **kwargs)
+        self.json_path   = json_path
+        self.thrift_port = thrift_port
+
+    def start(self, controllers):
+        if True:
+            ifaces = ' '.join(
+                '--interface %d@%s' % (i, intf)
+                for i, intf in enumerate(self.intfNames())
+            )
+            cmd = (
+                'simple_switch '
+                '%s '
+                '--thrift-port %d '
+                '%s '
+                '--log-file /tmp/%s_switch.log '
+                '--log-flush '
+                ' &'
+            ) % (ifaces, self.thrift_port, self.json_path,self.name)
+            print(f"Starting P4 switch {self.name} with command: {cmd}")
+            self.proc = self.popen(cmd)
+            time.sleep(3)
+            out, err = self.proc.communicate() if self.proc.poll() else ("running", "")
+            print(f"stdout: {out}, stderr: {err}")
+
+    def stop(self):
+        self.proc.terminate()
+        self.cmd('kill %simple_switch')
+
 
 def create_network() -> networkx.Graph:
     """
@@ -76,7 +111,7 @@ def annotate_graph(graph: networkx.Graph) -> networkx.Graph:
         node = graph.nodes[name]
         id = 0x0A000000 + countId # 10.0.0.0
         node["router_id"] = ipaddress.IPv4Interface((id, 32))
-        srv6Prefix = 0x220000000000000000000000000000 + countId*0x0010000000000000000000000000 # 22:: Unique local address space for SRv6
+        srv6Prefix = 0x00220000000000000000000000000000 + countId*0x00000010000000000000000000000000 # 0022:0010:: Unique local address space for SRv6
         node["srv6Prefix"] = format(ipaddress.IPv6Interface((srv6Prefix, 48)))
         if name[1] == "0":
             ip = 0xFC0010000000000000000000000000 + count1 # fc00:1::/128 range for nw1
@@ -534,14 +569,31 @@ class FrrSimRuntime:
 
         # Add a host to test connectivity and routing
         net.addHost("ue1")
-        net.addLink("ue1", "R0_0", intfName1="ue1-ethR0_0", intfName2="R0_0-ethUe1", cls=mininet.link.TCLink, params1={"delay": "10ms"}, params2={"delay": "10ms"})
-        net.getNodeByName("ue1").cmd("ip addr add fa::1/126 dev ue1-ethR0_0")
-        net.getNodeByName("ue1").cmd("ip route add 0::0/0 via fa::2 dev ue1-ethR0_0")
-        net.getNodeByName("ue1").cmd("ip -6 route add fc:20::2 encap seg6 mode encap segs 22:10:0:1::,22:20:0:1::,22:30:0:1:: dev ue1-ethR0_0")
-        net.getNodeByName("ue1").cmd("ip -6 route add fc:20::1 encap seg6 mode encap segs 22:10:0:2::,22:30:0:1:: dev ue1-ethR0_0")
 
-        net.getNodeByName("R0_0").cmd("ip addr add fa::2/126 dev R0_0-ethUe1")
+################### Below is what we want to test with the P4 switch, but it is not working yet, so we will test without the switch for now
         
+        # Currently th R0_0 receives traffic but drops it. Problem is that I added dest addr as a SRV6 SID, but it should be encapsulated
+        net.addSwitch(name="s1", cls=P4Switch, json_path="/home/vboxuser/satellites/ospf_bgp_srv6_test/myP4.json", thrift_port=9090)
+        net.addLink("ue1", "s1", intfName1="ue1-ethS1", intfName2="s1-ethUe1", cls=mininet.link.TCLink, params1={"delay": "10ms"}, params2={"delay": "10ms"})
+        net.addLink("R0_0", "s1", intfName1="R0_0-ethS1", intfName2="s1-ethR0_0", cls=mininet.link.TCLink, params1={"delay": "10ms"}, params2={"delay": "10ms"})
+        
+        net.getNodeByName("ue1").cmd("ip addr add fa::1/126 dev ue1-ethS1")
+        net.getNodeByName("ue1").cmd("ip route add 0::0/0 via fa::2 dev ue1-ethS1")
+
+        net.getNodeByName("R0_0").cmd("ip addr add fa::2/126 dev R0_0-ethS1")
+
+######################### Below is what we want to test without the P4 switch #########################
+#        net.addLink("ue1", "R0_0", intfName1="ue1-ethR0_0", intfName2="R0_0-ethUe1", cls=mininet.link.TCLink, params1={"delay": "10ms"}, params2={"delay": "10ms"})
+#        
+#        net.getNodeByName("ue1").cmd("ip addr add fa::1/126 dev ue1-ethR0_0")
+#        net.getNodeByName("ue1").cmd("ip route add 0::0/0 via fa::2 dev ue1-ethR0_0")
+#        # Add SRv6 routes on the host to test the network
+#        net.getNodeByName("ue1").cmd("ip -6 route add fc:20::2 encap seg6 mode encap segs 22:10:0:1::,22:20:0:1::,22:30:0:1:: dev ue1-ethR0_0")
+#        net.getNodeByName("ue1").cmd("ip -6 route add fc:20::1 encap seg6 mode encap segs 22:10:0:2::,22:30:0:1:: dev ue1-ethR0_0")#
+#
+#        net.getNodeByName("R0_0").cmd("ip addr add fa::2/126 dev R0_0-ethUe1")
+##########################################################################################################
+
         for name, node in self.graph.nodes.items():
             self.net.getNodeByName(name).cmd("sysctl -w net.ipv6.conf.all.seg6_enabled=1")
             ip = format(node.get("ip"))
@@ -551,7 +603,11 @@ class FrrSimRuntime:
                 #self.net.getNodeByName(name).cmd(f"ip -6 route add 22:10:0:1:: encap seg6local action End.DT6 table 254 dev lo")
                 self.net.getNodeByName(name).cmd(f"ip -6 route add 22:10:0:1:: encap seg6local action End.X nh6 22:20:0:1:: dev R0_0-ethR0_1")
                 self.net.getNodeByName(name).cmd(f"ip -6 route add 22:10:0:2:: encap seg6local action End.X nh6 22:30:0:1:: dev R0_0-ethR0_2")
-                self.net.getNodeByName(name).cmd("sysctl -w net.ipv6.conf.R0_0-ethUe1.seg6_enabled=1")
+                
+                #### OBS
+                #self.net.getNodeByName(name).cmd("sysctl -w net.ipv6.conf.R0_0-ethUe1.seg6_enabled=1")
+                self.net.getNodeByName(name).cmd("sysctl -w net.ipv6.conf.R0_0-ethS1.seg6_enabled=1")
+                
                 self.net.getNodeByName(name).cmd("sysctl -w net.ipv6.conf.R0_0-ethR0_1.seg6_enabled=1")
                 self.net.getNodeByName(name).cmd("sysctl -w net.ipv6.conf.R0_0-ethR0_2.seg6_enabled=1")
                 self.net.getNodeByName(name).cmd("ip -6 addr add 22:10:0:1::/48 dev lo")
@@ -586,6 +642,9 @@ class FrrSimRuntime:
         for router in self.routers.values():
             router.start(self.net)
 
+        # Also start the switch
+        self.net.getNodeByName("s1").start([])
+
         # Wait for start to complete.
         for router in self.routers.values():
             router.waitOutput()
@@ -593,6 +652,9 @@ class FrrSimRuntime:
     def stop_routers(self):
         for router in self.routers.values():
             router.stop()
+
+        # Also stop the switch
+        self.net.getNodeByName("s1").stop()
 
         # Wait for commands to complete - important!.
         # Otherwise processes may not shut down.
