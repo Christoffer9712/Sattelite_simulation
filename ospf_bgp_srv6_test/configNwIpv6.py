@@ -20,24 +20,45 @@ class P4Switch(Switch):
 
     def start(self, controllers):
         if True:
+            print(f"Starting P4 switch {self.name} with JSON config {self.json_path} and thrift port {self.thrift_port}")
             ifaces = ' '.join(
                 '--interface %d@%s' % (i, intf)
                 for i, intf in enumerate(self.intfNames())
             )
+   
+
             cmd = (
-                'simple_switch '
+                'simple_switch_grpc '
+                '--device-id 0 '
                 '%s '
+                '--log-file /tmp/s1_switch '
+                '--log-flush '
+                '--log-level debug '
                 '--thrift-port %d '
                 '%s '
-                '--log-file /tmp/%s_switch.log '
-                '--log-flush '
-                ' &'
-            ) % (ifaces, self.thrift_port, self.json_path,self.name)
+                '-- --grpc-server-addr 0.0.0.0:9559 '
+            ) % (ifaces, self.thrift_port, self.json_path)
+
+        #    (   'simple_switch '
+        #        '%s '
+        #        '--thrift-port %d '
+        #        '%s '
+        #        '--log-file /tmp/%s_switch.log '
+        #        '--log-flush '
+        #        ' &'
+        #    ) % (ifaces, self.thrift_port, self.json_path,self.name)
+
             print(f"Starting P4 switch {self.name} with command: {cmd}")
             self.proc = self.popen(cmd)
             time.sleep(3)
-            out, err = self.proc.communicate() if self.proc.poll() else ("running", "")
-            print(f"stdout: {out}, stderr: {err}")
+            
+            ret = self.proc.poll()
+        if ret is not None:
+            # Process already died
+            out, err = self.proc.communicate()
+            print(f"[{self.name}] switch DIED (rc={ret})\nstdout: {out}\nstderr: {err}")
+        else:
+            print(f"[{self.name}] switch is running, PID={self.proc.pid}")
 
     def stop(self):
         self.proc.terminate()
@@ -546,8 +567,8 @@ class NetxTopo(mininet.topo.Topo):
                 router2,
                 intfName1=intf1,
                 intfName2=intf2,
-                params1={"delay": "1ms"},
-                params2={"delay": "1ms"},
+                params1={"delay": "1ms", "loss": 0, 'jitter': 0},
+                params2={"delay": "1ms", "loss": 0, 'jitter': 0},
                 cls=mininet.link.TCLink, 
             )
 
@@ -571,27 +592,28 @@ class FrrSimRuntime:
         net.addHost("ue1")
 
 ################### Below is what we want to test with the P4 switch, but it is not working yet, so we will test without the switch for now
-        
-        # Currently th R0_0 receives traffic but drops it. Problem is that I added dest addr as a SRV6 SID, but it should be encapsulated
-        net.addSwitch(name="s1", cls=P4Switch, json_path="/home/vboxuser/satellites/ospf_bgp_srv6_test/myP4.json", thrift_port=9090)
-        net.addLink("ue1", "s1", intfName1="ue1-ethS1", intfName2="s1-ethUe1", cls=mininet.link.TCLink, params1={"delay": "10ms"}, params2={"delay": "10ms"})
-        net.addLink("R0_0", "s1", intfName1="R0_0-ethS1", intfName2="s1-ethR0_0", cls=mininet.link.TCLink, params1={"delay": "10ms"}, params2={"delay": "10ms"})
-        
-        net.getNodeByName("ue1").cmd("ip addr add fa::1/126 dev ue1-ethS1")
-        net.getNodeByName("ue1").cmd("ip route add 0::0/0 via fa::2 dev ue1-ethS1")
+        useP4 = True
+        if useP4:
+            # Currently th R0_0 receives traffic but drops it. Problem is that I added dest addr as a SRV6 SID, but it should be encapsulated
+            net.addSwitch(name="s1", cls=P4Switch, json_path="/home/vboxuser/satellites/ospf_bgp_srv6_test/build/myP4.json", thrift_port=9090)
+            net.addLink("ue1", "s1", intfName1="ue1-ethS1", intfName2="s1-ethUe1", cls=mininet.link.TCLink, params1={"delay": "10ms", "loss": 0, 'jitter': 0}, params2={"delay": "10ms", "loss": 0, 'jitter': 0})
+            net.addLink("R0_0", "s1", intfName1="R0_0-ethS1", intfName2="s1-ethR0_0", cls=mininet.link.TCLink, params1={"delay": "10ms", "loss": 0, 'jitter': 0}, params2={"delay": "10ms", "loss": 0, 'jitter': 0})
+            
+            net.getNodeByName("ue1").cmd("ip addr add fa::1/126 dev ue1-ethS1")
+            net.getNodeByName("ue1").cmd("ip route add 0::0/0 via fa::2 dev ue1-ethS1")
 
-        net.getNodeByName("R0_0").cmd("ip addr add fa::2/126 dev R0_0-ethS1")
-
+            net.getNodeByName("R0_0").cmd("ip addr add fa::2/126 dev R0_0-ethS1")
+        else:
 ######################### Below is what we want to test without the P4 switch #########################
-#        net.addLink("ue1", "R0_0", intfName1="ue1-ethR0_0", intfName2="R0_0-ethUe1", cls=mininet.link.TCLink, params1={"delay": "10ms"}, params2={"delay": "10ms"})
-#        
-#        net.getNodeByName("ue1").cmd("ip addr add fa::1/126 dev ue1-ethR0_0")
-#        net.getNodeByName("ue1").cmd("ip route add 0::0/0 via fa::2 dev ue1-ethR0_0")
-#        # Add SRv6 routes on the host to test the network
-#        net.getNodeByName("ue1").cmd("ip -6 route add fc:20::2 encap seg6 mode encap segs 22:10:0:1::,22:20:0:1::,22:30:0:1:: dev ue1-ethR0_0")
-#        net.getNodeByName("ue1").cmd("ip -6 route add fc:20::1 encap seg6 mode encap segs 22:10:0:2::,22:30:0:1:: dev ue1-ethR0_0")#
-#
-#        net.getNodeByName("R0_0").cmd("ip addr add fa::2/126 dev R0_0-ethUe1")
+            net.addLink("ue1", "R0_0", intfName1="ue1-ethR0_0", intfName2="R0_0-ethUe1", cls=mininet.link.TCLink, params1={"delay": "10ms", "loss": 0, 'jitter': 0}, params2={"delay": "10ms", "loss": 0, 'jitter': 0})
+        
+            net.getNodeByName("ue1").cmd("ip addr add fa::1/126 dev ue1-ethR0_0")
+            net.getNodeByName("ue1").cmd("ip route add 0::0/0 via fa::2 dev ue1-ethR0_0")
+            # Add SRv6 routes on the host to test the network
+            net.getNodeByName("ue1").cmd("ip -6 route add fc:20::2 encap seg6 mode encap segs 22:10:0:1::,22:20:0:1::,22:30:0:1:: dev ue1-ethR0_0")
+            net.getNodeByName("ue1").cmd("ip -6 route add fc:20::1 encap seg6 mode encap segs 22:10:0:2::,22:30:0:1:: dev ue1-ethR0_0")#
+
+            net.getNodeByName("R0_0").cmd("ip addr add fa::2/126 dev R0_0-ethUe1")
 ##########################################################################################################
 
         for name, node in self.graph.nodes.items():
@@ -605,8 +627,10 @@ class FrrSimRuntime:
                 self.net.getNodeByName(name).cmd(f"ip -6 route add 22:10:0:2:: encap seg6local action End.X nh6 22:30:0:1:: dev R0_0-ethR0_2")
                 
                 #### OBS
-                #self.net.getNodeByName(name).cmd("sysctl -w net.ipv6.conf.R0_0-ethUe1.seg6_enabled=1")
-                self.net.getNodeByName(name).cmd("sysctl -w net.ipv6.conf.R0_0-ethS1.seg6_enabled=1")
+                if useP4:
+                    self.net.getNodeByName(name).cmd("sysctl -w net.ipv6.conf.R0_0-ethS1.seg6_enabled=1")
+                else:
+                    self.net.getNodeByName(name).cmd("sysctl -w net.ipv6.conf.R0_0-ethUe1.seg6_enabled=1")
                 
                 self.net.getNodeByName(name).cmd("sysctl -w net.ipv6.conf.R0_0-ethR0_1.seg6_enabled=1")
                 self.net.getNodeByName(name).cmd("sysctl -w net.ipv6.conf.R0_0-ethR0_2.seg6_enabled=1")
@@ -641,9 +665,12 @@ class FrrSimRuntime:
         # Start all nodes
         for router in self.routers.values():
             router.start(self.net)
-
+    
         # Also start the switch
-        self.net.getNodeByName("s1").start([])
+        try:
+            self.net.getNodeByName("s1").start([])
+        except Exception as e:
+            print(f"Not starting switch: {e}")
 
         # Wait for start to complete.
         for router in self.routers.values():
@@ -653,8 +680,11 @@ class FrrSimRuntime:
         for router in self.routers.values():
             router.stop()
 
-        # Also stop the switch
-        self.net.getNodeByName("s1").stop()
+        try:
+            # Also stop the switch
+            self.net.getNodeByName("s1").stop()
+        except Exception as e:
+            print(f"Not stopping switch: {e}")
 
         # Wait for commands to complete - important!.
         # Otherwise processes may not shut down.

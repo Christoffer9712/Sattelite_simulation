@@ -1,0 +1,20 @@
+Explanation of SRv6 and code:
+SRv6 is a source routing routing scheme where the principal idea of SRv6 is that the source (headend) can decide paths and functions to be executed along the path.
+The IPv6 protocol indicates that there’s an IPv6 routing header extension by setting the Next Header in the IPv6 protocol to 43.
+In order to send a SRv6 message in mininet, I added a new host (ue1) and gave this host a new interface towards one of the routers (R0_0). I added a routing table entry in ue1 as:
+Ip -6 route add fc:20::2 encap seg6 mode encap segs 22:10:0:1,,22:20:0:1::,22:30:0:1:: dev ue1-ethR0_0
+It’s also necessary to enable seg6 on all interfaces using SRv6 by:
+Sysctl -w net.ipv6.conf.<interface>.seg6_enabled=1
+
+The SID addresses (22:10:0:1::, etc) must be routable which is done by assigning the address to a loopback interface as:
+Ip -6 addr add 22:10:0:1::/128 dev lo
+This is not just to be externally routable, but also for the node itself to have the IP address as an entry and so it can be mapped to the SRv6 action.
+
+An action is added in a node by:
+Ip -6 route add 22:10:0:1:: encap seg6local action End.x nh6 22:20:0:1:: dev R0_0-ethR0_1
+This action tells the incoming packet (with IP destination address 22:10:0:1::) to perform the action. The action is to remove the outer IP-destination, reduce seg_left by one, update the active segment and then route the packet to the nexthop address 22:20:0:1:: on the interface R0_0-ethR0_1. If the address 22:20:0:1:: exists on another interface, it seems as it can just neglect the dev <interface> part.
+Basically, the host needs to know what the different addresses mean and what action they perform to set up the entire path from the source.
+
+
+ To compile P4
+ p4c --target bmv2 --arch v1model --p4runtime-files build/myP4info.txt -o build/ myP4.p4

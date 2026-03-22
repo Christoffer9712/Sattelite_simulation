@@ -277,12 +277,6 @@ control MyIngress(inout headers hdr,
             mark_to_drop_action;
         }
         default_action = mark_to_drop_action();
-        
-        const entries = {
-            128w0x00fc0020000000000000000000000002 &&& 128w0xffffffffffffffffffffffffffffffff : srv6_encap_3sid(128w0x00220010000000010000000000000000, 128w0x00220020000000010000000000000000, 128w0x00220030000000010000000000000000, 2);
-            128w0x00fc0020000000000000000000000001 &&& 128w0xffffffffffffffffffffffffffffffff : srv6_encap_2sid(128w0x00220010000000020000000000000000, 128w0x00220030000000010000000000000000, 2);
-            128w0x00fa0000000000000000000000000001 &&& 128w0xffffffffffffffffffffffffffffffff : no_encap(1);
-        }
     }
 
     // ------------------------------------------------------------------ //
