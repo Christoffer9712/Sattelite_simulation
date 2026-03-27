@@ -13,19 +13,19 @@ import time
 
 
 class P4Switch(Switch):
-    def __init__(self, name, json_path, thrift_port=9090, **kwargs):
+    def __init__(self, name, json_path, grpc_port=9559, thrift_port=9090, **kwargs):
         Switch.__init__(self, name, **kwargs)
         self.json_path   = json_path
+        self.grpc_port   = grpc_port
         self.thrift_port = thrift_port
 
     def start(self, controllers):
         if True:
-            print(f"Starting P4 switch {self.name} with JSON config {self.json_path} and thrift port {self.thrift_port}")
             ifaces = ' '.join(
                 '--interface %d@%s' % (i, intf)
                 for i, intf in enumerate(self.intfNames())
             )
-   
+            print(f"Starting P4 switch {self.name} with JSON config {self.json_path} and thrift port {self.thrift_port}, interfaces: {ifaces}")
 
             cmd = (
                 'simple_switch_grpc '
@@ -36,8 +36,8 @@ class P4Switch(Switch):
                 '--log-level debug '
                 '--thrift-port %d '
                 '%s '
-                '-- --grpc-server-addr 0.0.0.0:9559 '
-            ) % (ifaces, self.thrift_port, self.json_path)
+                '-- --grpc-server-addr 0.0.0.0:%d '
+            ) % (ifaces, self.thrift_port, self.json_path, self.grpc_port)
 
         #    (   'simple_switch '
         #        '%s '
@@ -550,7 +550,7 @@ class NetxTopo(mininet.topo.Topo):
                 daemons=node["daemons"]
             )
 
-       # Create links between routers
+        noLink = {("R0_0", "R0_2")}
         for name, edge in self.graph.edges.items():
             router1 = name[0]
             router2 = name[1]
@@ -561,17 +561,49 @@ class NetxTopo(mininet.topo.Topo):
             ip2 = edge["ip"][router2]
             intf2 = edge["intf"][router2]
 
-            print(f"add link between {router1} and {router2} with ips {ip1} and {ip2}")
+            if (router1, router2) in noLink or (router2, router1) in noLink:
+                print(f"skipping link between {router1} and {router2}")
+                
+            else:
+                print(f"add link between {router1} and {router2} with ips {ip1} and {ip2}")
+                self.addLink(
+                    router1,
+                    router2,
+                    intfName1=intf1,
+                    intfName2=intf2,
+                    params1={"delay": "1ms", "loss": 0, 'jitter': 0},
+                    params2={"delay": "1ms", "loss": 0, 'jitter': 0},
+                    cls=mininet.link.TCLink, 
+                )
+        
+        # Insert switch between 2 routers
+        switchList = [{"n1":"R0_0", "n2":"R0_2", "name":"s2", "cls":P4Switch, "json_path":"/home/vboxuser/satellites/ospf_bgp_srv6_test/build/s2P4.json", "grpc_port":9560, "thrift_port":9091}]
+        for switchInfo in switchList:
+            self.addSwitch(
+                switchInfo["name"],
+                cls=switchInfo["cls"],
+                json_path=switchInfo["json_path"],
+                grpc_port=switchInfo["grpc_port"],
+                thrift_port=switchInfo["thrift_port"]
+            )
             self.addLink(
-                router1,
-                router2,
-                intfName1=intf1,
-                intfName2=intf2,
+                switchInfo["n1"],
+                switchInfo["name"],
+                intfName1=f"{switchInfo['n1']}-eth{switchInfo['name']}",
+                intfName2=f"{switchInfo['name']}-eth{switchInfo['n1']}",
                 params1={"delay": "1ms", "loss": 0, 'jitter': 0},
                 params2={"delay": "1ms", "loss": 0, 'jitter': 0},
                 cls=mininet.link.TCLink, 
             )
-
+            self.addLink(
+                switchInfo["name"],
+                switchInfo["n2"],
+                intfName1=f"{switchInfo['name']}-eth{switchInfo['n2']}",
+                intfName2=f"{switchInfo['n2']}-eth{switchInfo['name']}",
+                params1={"delay": "1ms", "loss": 0, 'jitter': 0},
+                params2={"delay": "1ms", "loss": 0, 'jitter': 0},
+                cls=mininet.link.TCLink, 
+            )
 
 class FrrSimRuntime:
     """
@@ -595,7 +627,7 @@ class FrrSimRuntime:
         useP4 = True
         if useP4:
             # Currently th R0_0 receives traffic but drops it. Problem is that I added dest addr as a SRV6 SID, but it should be encapsulated
-            net.addSwitch(name="s1", cls=P4Switch, json_path="/home/vboxuser/satellites/ospf_bgp_srv6_test/build/myP4.json", thrift_port=9090)
+            net.addSwitch(name="s1", cls=P4Switch, json_path="/home/vboxuser/satellites/ospf_bgp_srv6_test/build/s1P4.json", grpc_port=9559, thrift_port=9090)
             net.addLink("ue1", "s1", intfName1="ue1-ethS1", intfName2="s1-ethUe1", cls=mininet.link.TCLink, params1={"delay": "10ms", "loss": 0, 'jitter': 0}, params2={"delay": "10ms", "loss": 0, 'jitter': 0})
             net.addLink("R0_0", "s1", intfName1="R0_0-ethS1", intfName2="s1-ethR0_0", cls=mininet.link.TCLink, params1={"delay": "10ms", "loss": 0, 'jitter': 0}, params2={"delay": "10ms", "loss": 0, 'jitter': 0})
             

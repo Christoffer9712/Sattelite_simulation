@@ -6,8 +6,8 @@ sh.setup(
     grpc_addr='127.0.0.1:9559',
     election_id=(0, 1),                        # (high, low) — must be non-zero
     config=sh.FwdPipeConfig(
-        'build/myP4info.txt',
-        'build/myP4.json'
+        'build/s1P4info.txt',
+        'build/s1P4.json'
     )
 )
 

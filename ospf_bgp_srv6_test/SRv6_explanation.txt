@@ -16,5 +16,5 @@ This action tells the incoming packet (with IP destination address 22:10:0:1::) 
 Basically, the host needs to know what the different addresses mean and what action they perform to set up the entire path from the source.
 
 
- To compile P4
- p4c --target bmv2 --arch v1model --p4runtime-files build/myP4info.txt -o build/ myP4.p4
+To compile P4
+p4c --target bmv2 --arch v1model --p4runtime-files build/s1P4info.txt -o build/ s1P4.p4

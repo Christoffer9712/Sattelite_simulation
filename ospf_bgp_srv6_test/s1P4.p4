@@ -4,7 +4,8 @@
 /*************************************************************************
  * CONSTANTS
  *************************************************************************/
-const bit<16> ETHERTYPE_IPv6  = 0x86DD;
+const bit<16> ETHERTYPE_IPv6        = 0x86DD;
+const bit<16> ETHERTYPE_TIME_SYNC   = 0x8888;
 
 // IPv6 Next Header values
 const bit<8> NEXTHDR_ICMPv6   = 58;
@@ -16,6 +17,13 @@ const bit<8> ICMPV6_RS        = 133;   // Router Solicitation
 const bit<8> ICMPV6_RA        = 134;   // Router Advertisement
 const bit<8> ICMPV6_NS        = 135;   // Neighbour Solicitation
 const bit<8> ICMPV6_NA        = 136;   // Neighbour Advertisement
+
+// Time sync message types
+const bit<8> MSG_SYNC_REQ     = 0x01;
+const bit<8> MSG_SYNC_REPLY   = 0x02;
+const bit<8> MSG_SYNC_ACK     = 0x03;
+
+const bit <8> TLV_TYPE_TIMSTAMP = 0xcc; // Random TLV type value
 
 #define MAX_SIDS 4
 
@@ -63,10 +71,19 @@ header srv6_list_t {
     bit<128> segmentId;
 }
 
-header my_timestamp_t {
+// TLV timestamp to be sent after SRv6 header for traffic
+header tlv_timestamp_t {
     bit<8> type;
     bit<8> length;
     bit<48> timestamp;
+}
+
+// To syncronise internal clock with external clock
+header time_sync_t {
+    bit<8> sync_type;
+    bit<48> switch_ts;
+    bit<48> unix_ts;
+    bit<16> padding;    
 }
 
 struct headers {
@@ -76,7 +93,8 @@ struct headers {
     srv6h_t                 srv6h;
     srv6_list_t[MAX_SIDS]   srv6_list;
     ipv6_t                  ipv6_inner; //
-    my_timestamp_t          timestamp;
+    tlv_timestamp_t         timestamp;
+    time_sync_t             time_sync;
 }
 
 struct metadata { }
@@ -92,8 +110,9 @@ parser MyParser(packet_in packet,
     state start {
         packet.extract(hdr.ethernet);
         transition select(hdr.ethernet.etherType) {
-            ETHERTYPE_IPv6 : parse_ipv6;
-            default        : accept;
+            ETHERTYPE_IPv6      : parse_ipv6;
+            ETHERTYPE_TIME_SYNC : parse_time_sync;
+            default             : accept;
         }
     }
 
@@ -105,6 +124,11 @@ parser MyParser(packet_in packet,
         }
     }
 
+    state parse_time_sync {
+        packet.extract(hdr.time_sync);
+        transition accept;
+    }
+
     // Parse just enough of ICMPv6 to read the type field.
     // The rest of the payload remains untouched in the packet buffer.
     state parse_icmpv6 {
@@ -112,6 +136,9 @@ parser MyParser(packet_in packet,
         transition accept;
     }
 }
+
+/* Register to store the offset */
+register<bit<48>>(1) time_offset_reg;
 
 /*************************************************************************
  * INGRESS
@@ -291,50 +318,68 @@ control MyIngress(inout headers hdr,
     // ------------------------------------------------------------------ //
     action add_timestamp (){
         hdr.timestamp.setValid();
-        hdr.timestamp.type = 1;
+        hdr.timestamp.type = TLV_TYPE_TIMSTAMP;
         hdr.timestamp.length = 6; //timestamp is 6*8 bits (6 bytes)
-        hdr.timestamp.timestamp = standard_metadata.ingress_global_timestamp;
+        bit<64> time_ms = (((bit<64>) standard_metadata.ingress_global_timestamp)*0x418937) >> 32; // Equivalent to divide by 1000
+        bit<48> offset;
+        time_offset_reg.read(offset, 0);
+        hdr.timestamp.timestamp = offset + (bit<48>)time_ms;
 
         hdr.srv6h.hdrExtLen   = hdr.srv6h.hdrExtLen + 1;  // +8 bytes (1 unit = 8 bytes)
         hdr.ipv6_outer.payloadLen = hdr.ipv6_outer.payloadLen + 8;
     }
 
     // ------------------------------------------------------------------ //
-    // add_timestamp_table
+    // action 
     // ------------------------------------------------------------------ //
-    table add_timestamp_table {
-        key = {hdr.ipv6_inner.dstAddr: lpm;} // Random for now
-        actions = {
-            add_timestamp;
-        }
-        default_action = add_timestamp();
+    action time_sync_req (){
+        hdr.time_sync.sync_type = MSG_SYNC_REPLY;
+        hdr.time_sync.switch_ts = standard_metadata.ingress_global_timestamp;
+        standard_metadata.egress_spec = standard_metadata.ingress_port;
     }
+    
+    // Set registry
+    action time_sync_ack (){
+        bit<48> offset = hdr.time_sync.unix_ts - hdr.time_sync.switch_ts;
+        time_offset_reg.write(0, offset);
+        standard_metadata.egress_spec = standard_metadata.ingress_port;
+    }
+
     // ------------------------------------------------------------------ //
     // Apply block
     // ------------------------------------------------------------------ //
     apply {
-        if (!hdr.ipv6_inner.isValid()) {
-            mark_to_drop(standard_metadata);
-            return;
-        }
-
-        // NDP traffic must be passed through as-is — never push an SRH
-        // onto a Neighbour Solicitation/Advertisement or RS/RA, as that
-        // would break link-local address resolution on the shared prefix.
-        if (hdr.icmpv6.isValid()) {
-            if (hdr.icmpv6.icmpType == ICMPV6_NS ||
-                hdr.icmpv6.icmpType == ICMPV6_NA ||
-                hdr.icmpv6.icmpType == ICMPV6_RS ||
-                hdr.icmpv6.icmpType == ICMPV6_RA) {
-                ndp_forward.apply();
-                return;   // done — skip SRH insertion entirely
+        if (hdr.time_sync.isValid()) {
+            if (hdr.time_sync.sync_type == MSG_SYNC_REQ) {
+                time_sync_req();
+            } else if (hdr.time_sync.sync_type == MSG_SYNC_ACK) {
+                time_sync_ack();
             }
         }
+        else {
+            if (!hdr.ipv6_inner.isValid()) {
+                mark_to_drop(standard_metadata);
+                return;
+            }
 
-        // Normal unicast IPv6: apply SRv6 policy.
-        srv6_sid_table.apply();
-        if(hdr.srv6h.isValid()){
-            add_timestamp_table.apply();
+            // NDP traffic must be passed through as-is — never push an SRH
+            // onto a Neighbour Solicitation/Advertisement or RS/RA, as that
+            // would break link-local address resolution on the shared prefix.
+            if (hdr.icmpv6.isValid()) {
+                if (hdr.icmpv6.icmpType == ICMPV6_NS ||
+                    hdr.icmpv6.icmpType == ICMPV6_NA ||
+                    hdr.icmpv6.icmpType == ICMPV6_RS ||
+                    hdr.icmpv6.icmpType == ICMPV6_RA) {
+                    ndp_forward.apply();
+                    return;   // done — skip SRH insertion entirely
+                }
+            }
+
+            // Normal unicast IPv6: apply SRv6 policy.
+            srv6_sid_table.apply();
+            if(hdr.srv6h.isValid()){
+                add_timestamp();
+            }
         }
     }
 }
@@ -365,6 +410,7 @@ control MyComputeChecksum(inout headers hdr, inout metadata meta) {
 control MyDeparser(packet_out packet, in headers hdr) {
     apply {
         packet.emit(hdr.ethernet);
+        packet.emit(hdr.time_sync);
         packet.emit(hdr.ipv6_outer);
         // Emit icmpv6 only when it was parsed (i.e. NDP path).
         // For SRH packets icmpv6 is invalid so emit() is a no-op.
