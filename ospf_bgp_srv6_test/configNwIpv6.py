@@ -10,60 +10,7 @@ import pwd
 import os
 import grp
 import time
-
-
-class P4Switch(Switch):
-    def __init__(self, name, json_path, grpc_port=9559, thrift_port=9090, **kwargs):
-        Switch.__init__(self, name, **kwargs)
-        self.json_path   = json_path
-        self.grpc_port   = grpc_port
-        self.thrift_port = thrift_port
-
-    def start(self, controllers):
-        if True:
-            ifaces = ' '.join(
-                '--interface %d@%s' % (i, intf)
-                for i, intf in enumerate(self.intfNames())
-            )
-            print(f"Starting P4 switch {self.name} with JSON config {self.json_path} and thrift port {self.thrift_port}, interfaces: {ifaces}")
-
-            cmd = (
-                'simple_switch_grpc '
-                '--device-id 0 '
-                '%s '
-                '--log-file /tmp/s1_switch '
-                '--log-flush '
-                '--log-level debug '
-                '--thrift-port %d '
-                '%s '
-                '-- --grpc-server-addr 0.0.0.0:%d '
-            ) % (ifaces, self.thrift_port, self.json_path, self.grpc_port)
-
-        #    (   'simple_switch '
-        #        '%s '
-        #        '--thrift-port %d '
-        #        '%s '
-        #        '--log-file /tmp/%s_switch.log '
-        #        '--log-flush '
-        #        ' &'
-        #    ) % (ifaces, self.thrift_port, self.json_path,self.name)
-
-            print(f"Starting P4 switch {self.name} with command: {cmd}")
-            self.proc = self.popen(cmd)
-            time.sleep(3)
-            
-            ret = self.proc.poll()
-        if ret is not None:
-            # Process already died
-            out, err = self.proc.communicate()
-            print(f"[{self.name}] switch DIED (rc={ret})\nstdout: {out}\nstderr: {err}")
-        else:
-            print(f"[{self.name}] switch is running, PID={self.proc.pid}")
-
-    def stop(self):
-        self.proc.terminate()
-        self.cmd('kill %simple_switch')
-
+from mininet.link import Intf
 
 def create_network() -> networkx.Graph:
     """
@@ -550,7 +497,6 @@ class NetxTopo(mininet.topo.Topo):
                 daemons=node["daemons"]
             )
 
-        noLink = {("R0_0", "R0_2")}
         for name, edge in self.graph.edges.items():
             router1 = name[0]
             router2 = name[1]
@@ -561,50 +507,17 @@ class NetxTopo(mininet.topo.Topo):
             ip2 = edge["ip"][router2]
             intf2 = edge["intf"][router2]
 
-            if (router1, router2) in noLink or (router2, router1) in noLink:
-                print(f"skipping link between {router1} and {router2}")
-                
-            else:
-                print(f"add link between {router1} and {router2} with ips {ip1} and {ip2}")
-                self.addLink(
-                    router1,
-                    router2,
-                    intfName1=intf1,
-                    intfName2=intf2,
-                    params1={"delay": "1ms", "loss": 0, 'jitter': 0},
-                    params2={"delay": "1ms", "loss": 0, 'jitter': 0},
-                    cls=mininet.link.TCLink, 
-                )
+            print(f"add link between {router1} and {router2} with ips {ip1} and {ip2}")
+            self.addLink(
+                router1,
+                router2,
+                intfName1=intf1,
+                intfName2=intf2,
+                params1={"delay": "1ms", "loss": 0, 'jitter': 0},
+                params2={"delay": "1ms", "loss": 0, 'jitter': 0},
+                cls=mininet.link.TCLink, 
+            )
         
-        # Insert switch between 2 routers
-        switchList = [{"n1":"R0_0", "n2":"R0_2", "name":"s2", "cls":P4Switch, "json_path":"/home/vboxuser/satellites/ospf_bgp_srv6_test/build/s2P4.json", "grpc_port":9560, "thrift_port":9091}]
-        for switchInfo in switchList:
-            self.addSwitch(
-                switchInfo["name"],
-                cls=switchInfo["cls"],
-                json_path=switchInfo["json_path"],
-                grpc_port=switchInfo["grpc_port"],
-                thrift_port=switchInfo["thrift_port"]
-            )
-            self.addLink(
-                switchInfo["n1"],
-                switchInfo["name"],
-                intfName1=f"{switchInfo['n1']}-eth{switchInfo['name']}",
-                intfName2=f"{switchInfo['name']}-eth{switchInfo['n1']}",
-                params1={"delay": "1ms", "loss": 0, 'jitter': 0},
-                params2={"delay": "1ms", "loss": 0, 'jitter': 0},
-                cls=mininet.link.TCLink, 
-            )
-            self.addLink(
-                switchInfo["name"],
-                switchInfo["n2"],
-                intfName1=f"{switchInfo['name']}-eth{switchInfo['n2']}",
-                intfName2=f"{switchInfo['n2']}-eth{switchInfo['name']}",
-                params1={"delay": "1ms", "loss": 0, 'jitter': 0},
-                params2={"delay": "1ms", "loss": 0, 'jitter': 0},
-                cls=mininet.link.TCLink, 
-            )
-
 class FrrSimRuntime:
     """
     Code for the FRR / Mininet / Monitoring functions.
@@ -620,33 +533,15 @@ class FrrSimRuntime:
 
         self.net = net
 
-        # Add a host to test connectivity and routing
-        net.addHost("ue1")
+        # Create veth pair
+        os.system("ip link add name veth-host type veth peer name veth-R0_0")
+        os.system("ip link set veth-host up")
+        os.system("ip addr add fa::1/64 dev veth-host") 
 
-################### Below is what we want to test with the P4 switch, but it is not working yet, so we will test without the switch for now
-        useP4 = True
-        if useP4:
-            # Currently th R0_0 receives traffic but drops it. Problem is that I added dest addr as a SRV6 SID, but it should be encapsulated
-            net.addSwitch(name="s1", cls=P4Switch, json_path="/home/vboxuser/satellites/ospf_bgp_srv6_test/build/s1P4.json", grpc_port=9559, thrift_port=9090)
-            net.addLink("ue1", "s1", intfName1="ue1-ethS1", intfName2="s1-ethUe1", cls=mininet.link.TCLink, params1={"delay": "10ms", "loss": 0, 'jitter': 0}, params2={"delay": "10ms", "loss": 0, 'jitter': 0})
-            net.addLink("R0_0", "s1", intfName1="R0_0-ethS1", intfName2="s1-ethR0_0", cls=mininet.link.TCLink, params1={"delay": "10ms", "loss": 0, 'jitter': 0}, params2={"delay": "10ms", "loss": 0, 'jitter': 0})
-            
-            net.getNodeByName("ue1").cmd("ip addr add fa::1/126 dev ue1-ethS1")
-            net.getNodeByName("ue1").cmd("ip route add 0::0/0 via fa::2 dev ue1-ethS1")
+        Intf('veth-R0_0', node=net.getNodeByName("R0_0"))
+        net.getNodeByName("R0_0").cmd("ip link set veth-R0_0 up")
+        net.getNodeByName("R0_0").cmd("ip addr add fa::2/64 dev veth-R0_0")
 
-            net.getNodeByName("R0_0").cmd("ip addr add fa::2/126 dev R0_0-ethS1")
-        else:
-######################### Below is what we want to test without the P4 switch #########################
-            net.addLink("ue1", "R0_0", intfName1="ue1-ethR0_0", intfName2="R0_0-ethUe1", cls=mininet.link.TCLink, params1={"delay": "10ms", "loss": 0, 'jitter': 0}, params2={"delay": "10ms", "loss": 0, 'jitter': 0})
-        
-            net.getNodeByName("ue1").cmd("ip addr add fa::1/126 dev ue1-ethR0_0")
-            net.getNodeByName("ue1").cmd("ip route add 0::0/0 via fa::2 dev ue1-ethR0_0")
-            # Add SRv6 routes on the host to test the network
-            net.getNodeByName("ue1").cmd("ip -6 route add fc:20::2 encap seg6 mode encap segs 22:10:0:1::,22:20:0:1::,22:30:0:1:: dev ue1-ethR0_0")
-            net.getNodeByName("ue1").cmd("ip -6 route add fc:20::1 encap seg6 mode encap segs 22:10:0:2::,22:30:0:1:: dev ue1-ethR0_0")#
-
-            net.getNodeByName("R0_0").cmd("ip addr add fa::2/126 dev R0_0-ethUe1")
-##########################################################################################################
 
         for name, node in self.graph.nodes.items():
             self.net.getNodeByName(name).cmd("sysctl -w net.ipv6.conf.all.seg6_enabled=1")
@@ -657,13 +552,7 @@ class FrrSimRuntime:
                 #self.net.getNodeByName(name).cmd(f"ip -6 route add 22:10:0:1:: encap seg6local action End.DT6 table 254 dev lo")
                 self.net.getNodeByName(name).cmd(f"ip -6 route add 22:10:0:1:: encap seg6local action End.X nh6 22:20:0:1:: dev R0_0-ethR0_1")
                 self.net.getNodeByName(name).cmd(f"ip -6 route add 22:10:0:2:: encap seg6local action End.X nh6 22:30:0:1:: dev R0_0-ethR0_2")
-                
-                #### OBS
-                if useP4:
-                    self.net.getNodeByName(name).cmd("sysctl -w net.ipv6.conf.R0_0-ethS1.seg6_enabled=1")
-                else:
-                    self.net.getNodeByName(name).cmd("sysctl -w net.ipv6.conf.R0_0-ethUe1.seg6_enabled=1")
-                
+                                
                 self.net.getNodeByName(name).cmd("sysctl -w net.ipv6.conf.R0_0-ethR0_1.seg6_enabled=1")
                 self.net.getNodeByName(name).cmd("sysctl -w net.ipv6.conf.R0_0-ethR0_2.seg6_enabled=1")
                 self.net.getNodeByName(name).cmd("ip -6 addr add 22:10:0:1::/48 dev lo")
